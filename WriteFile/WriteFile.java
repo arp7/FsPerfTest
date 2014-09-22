@@ -22,54 +22,85 @@ import java.util.regex.*;
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
+import org.apache.hadoop.fs.permission.FsPermission;
+import static org.apache.hadoop.fs.CreateFlag.*;
 
 public class WriteFile {
   // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
   static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
+  static final int BUFFER_SIZE = 64 * 1024;
+  static final int IO_SIZE = 4 * 1024;
   static long blockSize;
   static long fileSize;
   static long numFiles;
+  static boolean lazyPersist = false;
+  static boolean hsync = false;
+  static boolean verbose = false;
 
   public static void main (String[] args) throws Exception{
     parseArgs(args);
-    final byte[] data = new byte[(int) blockSize];
-    Arrays.fill(data, (byte) 0);
+    final byte[] data = new byte[IO_SIZE];
+    Arrays.fill(data, (byte) 65);
 
-    final Random rand = new Random(System.currentTimeMillis()/1000);
+    final Random rand = new Random(System.nanoTime()/1000);
     final Configuration conf = new Configuration();
     final FileSystem fs = FileSystem.get(conf);
-    DataOutputStream os = null;
+    FSDataOutputStream os = null;
 
     long totalTime = 0;
     long totalWriteTime = 0;
     boolean success = false;
+    long lastLoggedPercent = 0;
 
     try {
-      // Create a dummy file to prime the pipeline.
-      final Path dummyPath = new Path("/WriteFileDummy" + rand.nextInt());
-      fs.create(dummyPath, true).close();
-      fs.delete(dummyPath, false);
-
       // Create the requested number of files.
       for (int i = 0; i < numFiles; ++i) {
         final Path p = new Path("/WriteFile" + rand.nextInt());
 
-        long startTime = System.currentTimeMillis();
-        os = fs.create(p, true);
-
-        long writeStartTime = System.currentTimeMillis();
-        for (int j = 0; j < fileSize / blockSize; ++j) {
-          os.write(data, 0, data.length);
+        long startTime = System.nanoTime();
+        EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
+        if (lazyPersist) {
+          createFlags.add(LAZY_PERSIST);
         }
 
+        if (verbose) {
+          System.out.println(" > Writing file " + p);
+        }
+
+        os =
+            fs.create(
+                p,
+                FsPermission.getFileDefault(),
+                createFlags,
+                BUFFER_SIZE,
+                (short) 1,
+                blockSize,
+                null);
+
+        long writeStartTime = System.nanoTime();
+        for (int j = 0; j < fileSize / IO_SIZE; ++j) {
+          os.write(data, 0, data.length);
+
+          if (hsync) {
+            os.hsync();
+          }
+
+          if (verbose) {
+            long percentWritten = ((long) j * IO_SIZE * 100) / fileSize;
+            if (percentWritten > lastLoggedPercent) {
+              System.out.println("  >> Wrote " + j * IO_SIZE + "/" + fileSize + " [" + percentWritten + "%]");
+              lastLoggedPercent = percentWritten;
+            }
+          }
+        }
 
         os.close();
         os = null;
-        final long endTime = System.currentTimeMillis();
-        fs.delete(p, false);
+        final long endTime = System.nanoTime();
+        //fs.delete(p, false);      // TODO: Make command-line flag.
 
-        totalTime += (endTime - startTime);
-        totalWriteTime += (endTime - writeStartTime);
+        totalTime += (endTime - startTime) / (1000 * 1000);
+        totalWriteTime += (endTime - writeStartTime) / (1000 * 1000);
       }
 
       success = true;
@@ -84,19 +115,41 @@ public class WriteFile {
           FileUtils.byteCountToDisplaySize(fileSize));
       System.out.println("Mean Time per file: " + totalTime / numFiles + "ms");
       System.out.println("Mean Time to create file on NN: " + (totalTime - totalWriteTime) / numFiles + "ms");
-      System.out.println("Mean Time to write data: " + totalWriteTime / numFiles + "ms");
+      System.out.println("Mean Time to write data: " + totalTime / numFiles + "ms");
       System.out.println("Mean throughput: " + ((numFiles * fileSize) / (totalWriteTime * 1024)) + "MBps");
     }
   }
 
+  static private void usageAndExit() {
+    System.err.println(
+        "\n  Usage: WriteFile [--lazyPersist] [--hsync] [--verbose] <blocksize> <filesize> <numFiles>");
+    System.err.println(
+        "\n   --lazyPersist : Sets CreateFlag.LAZY_PERSIST");
+    System.err.println(
+        "\n   --hsync       : Issues an hsync after every block write");
+    System.exit(1);
+  }
+
   static private void parseArgs(String[] args) {
-    if (args.length != 3) {
-      System.err.println(
-          "\n  Usage: WriteFile <blocksize> <filesize> <numFiles>");
-      System.exit(1);
+    if (args.length < 3 || args.length > 6) {
+      usageAndExit();
     }
 
     int argIndex = 0;
+
+    while(args[argIndex].indexOf("--") == 0) {
+      if (args[argIndex].equalsIgnoreCase("--lazyPersist")) {
+        lazyPersist = true;
+      } else if (args[argIndex].equalsIgnoreCase("--hsync")) {
+        hsync = true;
+      } else if (args[argIndex].equalsIgnoreCase("--verbose")) {
+        verbose = true;
+      } else {
+        usageAndExit();
+      }
+      ++argIndex;
+    }
+
     blockSize = parseReadableLong(args[argIndex++]);
     fileSize = parseReadableLong(args[argIndex++]);
     numFiles = parseReadableLong(args[argIndex++]);

@@ -28,13 +28,14 @@ my $io_size = "64KB";
 sub usage {
   printf STDERR "   Benchmark to measure mean latency to create files of different sizes in DFS.\n";
   printf STDERR "   Usage: %s -j <jar> -s <file-sizes> -n <files-per-run>\n", basename($0);
-  printf STDERR "\t\t\t\t\t-d <description> -o <output-file>\n";
+  printf STDERR "\t\t\t\t\t-d <description> -o <output-file> [-l]\n";
   printf STDERR "     Options:\n";
   printf STDERR "       -j   : Benchmark jar file\n";
   printf STDERR "       -s   : Comma separated list of file sizes e.g. 4M,256M,1G\n";
   printf STDERR "       -n   : Number of DFS files per file size, for averaging\n";
   printf STDERR "       -d   : Description for recording in results file\n";
   printf STDERR "       -o   : Results csv file, appended to if it exists\n";
+  printf STDERR "       -l   : Use LazyPersist CreateFlag (optional)\n";
   exit 1;
 }
 
@@ -45,21 +46,26 @@ if (scalar @ARGV == 0 || $ARGV[0] eq "--help" || $ARGV[0] eq "-?") {
 # Parse command line options into state variables
 #
 my %options = ();
-getopt('j:s:n:d:o:', \%options);
+getopt('j:s:n:d:o:l', \%options);
 
-foreach my $opt (qw(j n s o d)) {
+foreach my $opt (qw(j n s o d l)) {
   if (!exists $options{$opt}) {
     print "Missing option $opt\n";
     usage();
   }
 }
 
+my $lazy_persist = "false";
 my $jar_file = $options{"j"};
 my $files_per_run = $options{"n"};
 my @file_sizes = shuffle(split(/,/, $options{"s"}));
 my $description = $options{"d"};
 my $output_file = $options{"o"};
 $description =~ s/,/;/g;
+
+if (exists $options{"l"}) {
+  $lazy_persist = "true";
+}
 
 open(my $myfile, ">>$output_file") or die "Failed to open $output_file for appends";
 
@@ -70,10 +76,13 @@ foreach my $file_size (@file_sizes) {
   my @command = ("bin/hadoop",
                  "jar",
                  $jar_file,
-                 "WriteFile",
-                 $io_size,
-                 $file_size,
-                 $files_per_run);
+                 "WriteFile");
+
+  if ($lazy_persist eq "true") {
+    push(@command, "--lazyPersist");
+  }
+
+  push(@command, $io_size, $file_size, $files_per_run);
 
   my $time_per_file;
   my $time_to_create_file;
@@ -98,7 +107,8 @@ foreach my $file_size (@file_sizes) {
   
   # Print stats to screen.
   #
-  printf "IoSize=%s,FileSize=%s,MeanTimeE2e=%s,MeanCreateTime=%s,MeanWriteTime=%s\n",
+  printf "LazyPersist=%s,IoSize=%s,FileSize=%s,MeanTimeE2e=%s,MeanCreateTime=%s,MeanWriteTime=%s\n",
+         $lazy_persist,
          $io_size,
          $file_size,
          $time_per_file,
@@ -107,8 +117,9 @@ foreach my $file_size (@file_sizes) {
 
   # And to output csv file.
   #
-  printf $myfile "Latency Test,%s,%s,%s,%s,%s,%s,%s\n",
-                  $description, $files_per_run, $io_size, $file_size,
-                  $time_per_file, $time_to_create_file, $time_to_write_data;
+  printf $myfile "Latency Test,%s,%s,%s,%s,%s,%s,%s,%s\n",
+                  $description, $lazy_persist, $files_per_run, $io_size,
+                  $file_size, $time_per_file, $time_to_create_file,
+                  $time_to_write_data;
 }
 
