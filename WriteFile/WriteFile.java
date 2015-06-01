@@ -29,17 +29,19 @@ public class WriteFile {
   // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
   static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
   static final int BUFFER_SIZE = 64 * 1024;
-  static final int IO_SIZE = 4 * 1024;
-  static long blockSize;
-  static long fileSize;
-  static long numFiles;
+  static long blockSize = 128 * 1024 * 1024;
+  static long fileSize = -1;
+  static long numFiles = 1;
+  static int ioSize = 64 * 1024;
   static boolean lazyPersist = false;
   static boolean hsync = false;
+  static boolean hflush = false;
   static boolean verbose = false;
+  static boolean throttle = false;
 
   public static void main (String[] args) throws Exception{
     parseArgs(args);
-    final byte[] data = new byte[IO_SIZE];
+    final byte[] data = new byte[ioSize];
     Arrays.fill(data, (byte) 65);
 
     final Random rand = new Random(System.nanoTime()/1000);
@@ -78,17 +80,23 @@ public class WriteFile {
                 null);
 
         long writeStartTime = System.nanoTime();
-        for (int j = 0; j < fileSize / IO_SIZE; ++j) {
+        for (int j = 0; j < fileSize / ioSize; ++j) {
           os.write(data, 0, data.length);
 
           if (hsync) {
             os.hsync();
+          } else if (hflush) {
+            os.hflush();
+          }
+
+          if (throttle) {
+            Thread.sleep(300);
           }
 
           if (verbose) {
-            long percentWritten = ((long) j * IO_SIZE * 100) / fileSize;
+            long percentWritten = ((long) j * ioSize * 100) / fileSize;
             if (percentWritten > lastLoggedPercent) {
-              System.out.println("  >> Wrote " + j * IO_SIZE + "/" + fileSize + " [" + percentWritten + "%]");
+              System.out.println("  >> Wrote " + j * ioSize + "/" + fileSize + " [" + percentWritten + "%]");
               lastLoggedPercent = percentWritten;
             }
           }
@@ -122,37 +130,73 @@ public class WriteFile {
 
   static private void usageAndExit() {
     System.err.println(
-        "\n  Usage: WriteFile [--lazyPersist] [--hsync] [--verbose] <blocksize> <filesize> <numFiles>");
+        "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-n <numFiles>] " +
+        "\n                   [-i <ioSize>] [--lazyPersist] [--hsync|hflush] " +
+        "\n                   [--throttle] [--verbose]");
     System.err.println(
-        "\n   --lazyPersist : Sets CreateFlag.LAZY_PERSIST");
+        "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
-        "\n   --hsync       : Issues an hsync after every block write");
+        "\n   -b blockSize  : Specify the block size. Default 128MB");
+    System.err.println(
+        "\n   -n numFiles   : Specify the number of Files. Default 1");
+    System.err.println(
+        "\n   -i ioSize     : Specify the io size. Default 64KB");
+    System.err.println(
+        "\n   --lazyPersist : Sets CreateFlag.LAZY_PERSIST. Optional.");
+    System.err.println(
+        "\n   --hsync       : Optionally issues hsync after every write. Optional.");
+    System.err.println(
+        "\n                   Cannot be used with --hflush.");
+    System.err.println(
+        "\n   --hflush      : Optionally issues hflush after every write. Optional.");
+    System.err.println(
+        "\n                   Cannot be used with --hsync.");
+    System.err.println(
+        "\n   --throttle    : Adds artificial throttle. The rate of throttling " +
+        "\n                   is not configurable. Optional.");
+    System.err.println(
+        "\n   --verbose     : Print verbose messages. Optional.");
     System.exit(1);
   }
 
   static private void parseArgs(String[] args) {
-    if (args.length < 3 || args.length > 6) {
-      usageAndExit();
-    }
-
     int argIndex = 0;
 
-    while(args[argIndex].indexOf("--") == 0) {
+    while(argIndex < args.length && args[argIndex].indexOf("-") == 0) {
       if (args[argIndex].equalsIgnoreCase("--lazyPersist")) {
         lazyPersist = true;
       } else if (args[argIndex].equalsIgnoreCase("--hsync")) {
         hsync = true;
+      } else if (args[argIndex].equalsIgnoreCase("--hflush")) {
+        hflush = true;
       } else if (args[argIndex].equalsIgnoreCase("--verbose")) {
         verbose = true;
+      } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
+        throttle = true;
+      } else if (args[argIndex].equalsIgnoreCase("-b")) {
+        blockSize = parseReadableLong(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("-n")) {
+        numFiles = parseReadableLong(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("-s")) {
+        fileSize = parseReadableLong(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("-i")) {
+        ioSize = parseReadableLong(args[++argIndex]).intValue();
       } else {
+        System.err.println("  Unknown option args[argIndex]");
         usageAndExit();
       }
       ++argIndex;
     }
 
-    blockSize = parseReadableLong(args[argIndex++]);
-    fileSize = parseReadableLong(args[argIndex++]);
-    numFiles = parseReadableLong(args[argIndex++]);
+    if (fileSize == -1) {
+      System.err.println("\n  The file size must be specified with -f");
+      usageAndExit();
+    }
+
+    if (hsync && hflush) {
+      System.err.println("\n  Cannot specify both --hsync and --hflush");
+      usageAndExit();
+    }
   }
 
   // Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB etc.
@@ -169,7 +213,7 @@ public class WriteFile {
         }
       }
       return Long.parseLong(matcher.group(1)) * multiplier;
-    } 
+    }
     throw new IllegalArgumentException("Unrecognized number format " + number);
   }
 }
