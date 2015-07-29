@@ -19,6 +19,8 @@
 import java.io.*;
 import java.util.*;
 import java.util.regex.*;
+import static java.lang.Math.abs;
+
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
@@ -41,6 +43,10 @@ public class WriteFile {
 
   public static void main (String[] args) throws Exception{
     parseArgs(args);
+    if (fileSize < ioSize) {
+      // Correctly handle small files.
+      ioSize = (int) fileSize;
+    }
     final byte[] data = new byte[ioSize];
     Arrays.fill(data, (byte) 65);
 
@@ -57,7 +63,7 @@ public class WriteFile {
     try {
       // Create the requested number of files.
       for (int i = 0; i < numFiles; ++i) {
-        final Path p = new Path("/WriteFile" + rand.nextInt());
+        final Path p = new Path("/WriteFile" + abs(rand.nextInt()));
 
         long startTime = System.nanoTime();
         EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
@@ -124,7 +130,7 @@ public class WriteFile {
       System.out.println("Mean Time per file: " + totalTime / numFiles + "ms");
       System.out.println("Mean Time to create file on NN: " + (totalTime - totalWriteTime) / numFiles + "ms");
       System.out.println("Mean Time to write data: " + totalTime / numFiles + "ms");
-      System.out.println("Mean throughput: " + ((numFiles * fileSize) / (totalWriteTime * 1024)) + "MBps");
+      System.out.println("Mean throughput: " + ((numFiles * fileSize) / (totalWriteTime)) + "KBps");
     }
   }
 
