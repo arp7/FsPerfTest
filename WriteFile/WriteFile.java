@@ -18,6 +18,8 @@
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
 import java.util.regex.*;
 import static java.lang.Math.abs;
 
@@ -31,114 +33,132 @@ public class WriteFile {
   // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
   static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
   static final int BUFFER_SIZE = 64 * 1024;
+  static final Random rand = new Random(System.nanoTime()/1000);
+
   static long blockSize = 128 * 1024 * 1024;
   static long fileSize = -1;
   static long numFiles = 1;
   static int ioSize = 64 * 1024;
+  static long numThreads = 1;
   static boolean lazyPersist = false;
   static boolean hsync = false;
   static boolean hflush = false;
   static boolean verbose = false;
   static boolean throttle = false;
 
-  public static void main (String[] args) throws Exception{
+  private static final class Stats {
+    public AtomicLong totalTime = new AtomicLong(0);
+    public AtomicLong totalWriteTime = new AtomicLong(0);
+  }
+
+  public static void main (String[] args) throws Exception {
     parseArgs(args);
-    if (fileSize < ioSize) {
-      // Correctly handle small files.
-      ioSize = (int) fileSize;
-    }
+    validateArgs();
+
     final byte[] data = new byte[ioSize];
     Arrays.fill(data, (byte) 65);
 
-    final Random rand = new Random(System.nanoTime()/1000);
+    final Stats stats = new Stats();
     final Configuration conf = new Configuration();
     final FileSystem fs = FileSystem.get(conf);
-    FSDataOutputStream os = null;
+    final AtomicLong filesLeft = new AtomicLong(numFiles);
 
-    long totalTime = 0;
-    long totalWriteTime = 0;
-    boolean success = false;
-    long lastLoggedPercent = 0;
+    // Start the writers.
+    ExecutorService executor = Executors.newFixedThreadPool((int) numThreads);
+    CompletionService<Object> ecs =
+        new ExecutorCompletionService<>(executor);
+    for (long t = 0; t < numThreads; ++t) {
+      Callable<Object> c = new Callable<Object>() {
+        @Override
+        public Object call() throws Exception {
+          while (filesLeft.addAndGet(-1) >= 0) {
+            writeOneFile(stats, conf, fs, data);
+          }
+          return null;
+        }
+      };
+      ecs.submit(c);
+    }
 
-    try {
-      // Create the requested number of files.
-      for (int i = 0; i < numFiles; ++i) {
-        final Path p = new Path("/WriteFile" + abs(rand.nextInt()));
+    // And wait for all writers to complete.
+    for (long t = 0; t < numThreads; ++t) {
+      ecs.take();
+    }
 
-        long startTime = System.nanoTime();
-        EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
-        if (lazyPersist) {
-          createFlags.add(LAZY_PERSIST);
+    executor.shutdown();
+    writeStats(stats);
+  }
+
+  static void writeOneFile(final Stats stats,
+                           final Configuration conf,
+                           final FileSystem fs,
+                           final byte[] data)
+  throws IOException, InterruptedException {
+    final Path p = new Path("/WriteFile-" + abs(rand.nextInt()));
+
+    long startTime = System.nanoTime();
+    EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
+    if (lazyPersist) {
+      createFlags.add(LAZY_PERSIST);
+    }
+
+    if (verbose) {
+      System.out.println(" > Writing file " + p);
+    }
+
+    try (FSDataOutputStream os = fs.create(
+            p, FsPermission.getFileDefault(),
+            createFlags, BUFFER_SIZE, (short) 1, blockSize, null)) {
+
+      long lastLoggedPercent = 0;
+      long writeStartTime = System.nanoTime();
+      for (int j = 0; j < fileSize / ioSize; ++j) {
+        os.write(data, 0, data.length);
+
+        if (hsync) {
+          os.hsync();
+        } else if (hflush) {
+          os.hflush();
+        }
+
+        if (throttle) {
+          Thread.sleep(300);
         }
 
         if (verbose) {
-          System.out.println(" > Writing file " + p);
-        }
-
-        os =
-            fs.create(
-                p,
-                FsPermission.getFileDefault(),
-                createFlags,
-                BUFFER_SIZE,
-                (short) 1,
-                blockSize,
-                null);
-
-        long writeStartTime = System.nanoTime();
-        for (int j = 0; j < fileSize / ioSize; ++j) {
-          os.write(data, 0, data.length);
-
-          if (hsync) {
-            os.hsync();
-          } else if (hflush) {
-            os.hflush();
-          }
-
-          if (throttle) {
-            Thread.sleep(300);
-          }
-
-          if (verbose) {
-            long percentWritten = ((long) j * ioSize * 100) / fileSize;
-            if (percentWritten > lastLoggedPercent) {
-              System.out.println("  >> Wrote " + j * ioSize + "/" + fileSize + " [" + percentWritten + "%]");
-              lastLoggedPercent = percentWritten;
-            }
+          long percentWritten = ((long) j * ioSize * 100) / fileSize;
+          if (percentWritten > lastLoggedPercent) {
+            System.out.println("  >> Wrote " + j * ioSize + "/" + fileSize + " [" + percentWritten + "%]");
+            lastLoggedPercent = percentWritten;
           }
         }
-
-        os.close();
-        os = null;
-        final long endTime = System.nanoTime();
-        //fs.delete(p, false);      // TODO: Make command-line flag.
-
-        totalTime += (endTime - startTime) / (1000 * 1000);
-        totalWriteTime += (endTime - writeStartTime) / (1000 * 1000);
       }
 
-      success = true;
-    } finally {
-      if (os != null) {
-        os.close();
-      }
+      long endTime = System.nanoTime();
+      stats.totalTime.addAndGet((endTime - startTime) / (1000000));
+      stats.totalWriteTime.addAndGet((endTime - writeStartTime) / 1000000);
     }
+  }
 
-    if (success) {
-      System.out.println("Total data written: " +
-          FileUtils.byteCountToDisplaySize(fileSize));
-      System.out.println("Mean Time per file: " + totalTime / numFiles + "ms");
-      System.out.println("Mean Time to create file on NN: " + (totalTime - totalWriteTime) / numFiles + "ms");
-      System.out.println("Mean Time to write data: " + totalTime / numFiles + "ms");
-      System.out.println("Mean throughput: " + ((numFiles * fileSize) / (totalWriteTime)) + "KBps");
-    }
+  static private void writeStats(final Stats stats) {
+    System.out.println("Total data written: " +
+        FileUtils.byteCountToDisplaySize(fileSize));
+    System.out.println("Mean Time per file: " +
+        stats.totalTime.get() / numFiles + "ms");
+    System.out.println("Mean Time to create file on NN: " +
+        (stats.totalTime.get() - stats.totalWriteTime.get()) / numFiles + "ms");
+    System.out.println("Mean Time to write data: " +
+        (stats.totalTime.get() / numFiles + "ms"));
+    System.out.println("Mean throughput: " +
+      (stats.totalWriteTime.get() > 0 ? 
+          ((numFiles * fileSize) / (stats.totalWriteTime.get())) : "Nan ") + "KBps");
   }
 
   static private void usageAndExit() {
     System.err.println(
         "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-n <numFiles>] " +
         "\n                   [-i <ioSize>] [--lazyPersist] [--hsync|hflush] " +
-        "\n                   [--throttle] [--verbose]");
+        "\n                   [-t <numThreads>] [--throttle] [--verbose]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
@@ -147,6 +167,8 @@ public class WriteFile {
         "\n   -n numFiles   : Specify the number of Files. Default 1");
     System.err.println(
         "\n   -i ioSize     : Specify the io size. Default 64KB");
+    System.err.println(
+        "\n   -i numThreads : Number of writer threads. Default 1");
     System.err.println(
         "\n   --lazyPersist : Sets CreateFlag.LAZY_PERSIST. Optional.");
     System.err.println(
@@ -187,13 +209,17 @@ public class WriteFile {
         fileSize = parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-i")) {
         ioSize = parseReadableLong(args[++argIndex]).intValue();
+      } else if (args[argIndex].equalsIgnoreCase("-t")) {
+        numThreads = parseReadableLong(args[++argIndex]);
       } else {
         System.err.println("  Unknown option args[argIndex]");
         usageAndExit();
       }
       ++argIndex;
     }
+  }
 
+  static private void validateArgs() {
     if (fileSize == -1) {
       System.err.println("\n  The file size must be specified with -f");
       usageAndExit();
@@ -202,6 +228,15 @@ public class WriteFile {
     if (hsync && hflush) {
       System.err.println("\n  Cannot specify both --hsync and --hflush");
       usageAndExit();
+    }
+
+    if (numThreads < 1 || numThreads > 64) {
+      System.err.println("\n  numThreads must be between 1 and 64 inclusive.");
+    }
+
+    if (fileSize < ioSize) {
+      // Correctly handle small files.
+      ioSize = (int) fileSize;
     }
   }
 
