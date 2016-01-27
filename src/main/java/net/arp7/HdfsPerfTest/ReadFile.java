@@ -16,18 +16,16 @@
  * limitations under the License.
  */
 
+package net.arp7.HdfsPerfTest;
+
 import java.io.*;
 import java.util.*;
-import java.util.regex.*;
-import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.hadoop.fs.permission.FsPermission;
 import static org.apache.hadoop.fs.CreateFlag.*;
 
 public class ReadFile {
-  // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
-  static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
   static final int BUFFER_SIZE = 64 * 1024;
   static boolean lazyPersist;
   static long blockSize;
@@ -126,28 +124,10 @@ public class ReadFile {
       lazyPersist = false;
     }
 
-    blockSize = parseReadableLong(args[argIndex++]);
-    fileSize = parseReadableLong(args[argIndex++]);
-    ioSize =  parseReadableLong(args[argIndex++]);
-    numReads = parseReadableLong(args[argIndex++]);
-  }
-
-  // Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB etc.
-  static private Long parseReadableLong(String number) {
-    Matcher matcher = pattern.matcher(number);
-    if (matcher.find()) {
-      long multiplier = 1;
-      if (matcher.group(2).length() > 0) {
-        switch (matcher.group(2).toLowerCase().charAt(0)) {
-          case 't':           multiplier *= 1024L;
-          case 'g':           multiplier *= 1024L;
-          case 'm':           multiplier *= 1024L;
-          case 'k':           multiplier *= 1024L;
-        }
-      }
-      return Long.parseLong(matcher.group(1)) * multiplier;
-    } 
-    throw new IllegalArgumentException("Unrecognized number format " + number);
+    blockSize = Utils.parseReadableLong(args[argIndex++]);
+    fileSize = Utils.parseReadableLong(args[argIndex++]);
+    ioSize =  Utils.parseReadableLong(args[argIndex++]);
+    numReads = Utils.parseReadableLong(args[argIndex++]);
   }
 }
 

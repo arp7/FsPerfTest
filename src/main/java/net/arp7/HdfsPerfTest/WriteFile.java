@@ -16,22 +16,29 @@
  * limitations under the License.
  */
 
+package net.arp7.HdfsPerfTest;
+
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
-import java.util.regex.*;
+
 import static java.lang.Math.abs;
 
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.apache.hadoop.fs.CreateFlag.*;
 
 public class WriteFile {
-  // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
-  static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
+  static final Logger LOG = LoggerFactory.getLogger(WriteFile.class);
+
   static final int BUFFER_SIZE = 64 * 1024;
   static final Random rand = new Random(System.nanoTime()/1000);
 
@@ -47,13 +54,6 @@ public class WriteFile {
   static boolean verbose = false;
   static boolean throttle = false;
 
-  private static final class Stats {
-    public AtomicLong totalTime = new AtomicLong(0);
-    public AtomicLong totalWriteTime = new AtomicLong(0);
-    public AtomicLong dataWritten = new AtomicLong(0);
-    public AtomicLong filesWritten = new AtomicLong(0);
-  }
-
   public static void main (String[] args) throws Exception {
     parseArgs(args);
     validateArgs();
@@ -61,21 +61,32 @@ public class WriteFile {
     final byte[] data = new byte[ioSize];
     Arrays.fill(data, (byte) 65);
 
-    final Stats stats = new Stats();
-    final Configuration conf = new Configuration();
+    final FileIoStats stats = new FileIoStats();
+    final Configuration conf = new HdfsConfiguration();
     final FileSystem fs = FileSystem.get(conf);
     final AtomicLong filesLeft = new AtomicLong(numFiles);
+    final long runId = abs(rand.nextLong());
 
     // Start the writers.
     ExecutorService executor = Executors.newFixedThreadPool((int) numThreads);
     CompletionService<Object> ecs =
         new ExecutorCompletionService<>(executor);
+    LOG.info("NumFiles=" + numFiles +
+        ", FileSize=" + FileUtils.byteCountToDisplaySize(fileSize) +
+        ", IoSize=" + FileUtils.byteCountToDisplaySize(ioSize) +
+        ", ReplicationFactor=" + replication);
+    LOG.info("Starting " + numThreads + " writer thread" +
+        (numThreads > 1 ? "s" : "") + ".");
     for (long t = 0; t < numThreads; ++t) {
+      final long threadIndex = t; 
       Callable<Object> c = new Callable<Object>() {
         @Override
         public Object call() throws Exception {
+          long fileIndex = 0;
           while (filesLeft.addAndGet(-1) >= 0) {
-            writeOneFile(stats, conf, fs, data);
+            final String fileName = "/WriteFile-" + runId +
+                "-" + (threadIndex + 1) + "-" + (++fileIndex);
+            writeOneFile(stats, fs, data, fileName);
           }
           return null;
         }
@@ -92,12 +103,12 @@ public class WriteFile {
     writeStats(stats);
   }
 
-  static void writeOneFile(final Stats stats,
-                           final Configuration conf,
+  static void writeOneFile(final FileIoStats stats,
                            final FileSystem fs,
-                           final byte[] data)
+                           final byte[] data,
+                           final String fileName)
   throws IOException, InterruptedException {
-    final Path p = new Path("/WriteFile-" + abs(rand.nextInt()));
+    final Path p = new Path(fileName);
 
     long startTime = System.nanoTime();
     EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
@@ -105,9 +116,7 @@ public class WriteFile {
       createFlags.add(LAZY_PERSIST);
     }
 
-    if (verbose) {
-      System.out.println(" > Writing file " + p);
-    }
+    LOG.info("Writing file " + p);
 
     try (FSDataOutputStream os = fs.create(
             p, FsPermission.getFileDefault(),
@@ -116,7 +125,7 @@ public class WriteFile {
 
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
-      for (int j = 0; j < fileSize / ioSize; ++j) {
+      for (long j = 0; j < fileSize / ioSize; ++j) {
         os.write(data, 0, data.length);
 
         if (hsync) {
@@ -129,35 +138,34 @@ public class WriteFile {
           Thread.sleep(300);
         }
 
-        if (verbose) {
-          long percentWritten = ((long) j * ioSize * 100) / fileSize;
+        if (LOG.isDebugEnabled()) {
+          long percentWritten = (j * ioSize * 100) / fileSize;
           if (percentWritten > lastLoggedPercent) {
-            System.out.println("  >> Wrote " + j * ioSize + "/" + fileSize + " [" + percentWritten + "%]");
+            LOG.debug("  >> Wrote " + j * ioSize + "/" +
+                fileSize + " [" + percentWritten + "%]");
             lastLoggedPercent = percentWritten;
           }
         }
       }
 
       long endTime = System.nanoTime();
-      stats.totalTime.addAndGet((endTime - startTime) / (1000000));
+      stats.totalTime.addAndGet((endTime - startTime) / 1000000);
       stats.totalWriteTime.addAndGet((endTime - writeStartTime) / 1000000);
       stats.filesWritten.addAndGet(1);
       stats.dataWritten.addAndGet(fileSize);
     }
   }
 
-  static private void writeStats(final Stats stats) {
-    System.out.println("Total files written: " +
-        FileUtils.byteCountToDisplaySize(stats.filesWritten.get()));
-    System.out.println("Total data written: " +
+  static private void writeStats(final FileIoStats stats) {
+    LOG.info("Total files written: " + stats.filesWritten.get());
+    LOG.info("Total data written: " +
         FileUtils.byteCountToDisplaySize(stats.dataWritten.get()));
-    System.out.println("Mean Time per file: " +
-        stats.totalTime.get() / numFiles + "ms");
-    System.out.println("Mean Time to create file on NN: " +
+    LOG.info("Mean Time per file: " + stats.totalTime.get() / numFiles + "ms");
+    LOG.info("Mean Time to create file on NN: " +
         (stats.totalTime.get() - stats.totalWriteTime.get()) / numFiles + "ms");
-    System.out.println("Mean Time to write data: " +
+    LOG.info("Mean Time to write data: " +
         (stats.totalTime.get() / numFiles + "ms"));
-    System.out.println("Mean throughput: " +
+    LOG.info("Mean throughput: " +
       (stats.totalWriteTime.get() > 0 ? 
           ((numFiles * fileSize) / (stats.totalWriteTime.get())) : "Nan ") + "KBps");
   }
@@ -213,17 +221,17 @@ public class WriteFile {
       } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
         throttle = true;
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
-        blockSize = parseReadableLong(args[++argIndex]);
+        blockSize = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-r")) {
         replication = Short.parseShort(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-n")) {
-        numFiles = parseReadableLong(args[++argIndex]);
+        numFiles = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-s")) {
-        fileSize = parseReadableLong(args[++argIndex]);
+        fileSize = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-i")) {
-        ioSize = parseReadableLong(args[++argIndex]).intValue();
+        ioSize = Utils.parseReadableLong(args[++argIndex]).intValue();
       } else if (args[argIndex].equalsIgnoreCase("-t")) {
-        numThreads = parseReadableLong(args[++argIndex]);
+        numThreads = Utils.parseReadableLong(args[++argIndex]);
       } else {
         System.err.println("  Unknown option args[argIndex]");
         usageAndExit();
@@ -251,24 +259,6 @@ public class WriteFile {
       // Correctly handle small files.
       ioSize = (int) fileSize;
     }
-  }
-
-  // Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB etc.
-  static private Long parseReadableLong(String number) {
-    Matcher matcher = pattern.matcher(number);
-    if (matcher.find()) {
-      long multiplier = 1;
-      if (matcher.group(2).length() > 0) {
-        switch (matcher.group(2).toLowerCase().charAt(0)) {
-          case 't':           multiplier *= 1024L;
-          case 'g':           multiplier *= 1024L;
-          case 'm':           multiplier *= 1024L;
-          case 'k':           multiplier *= 1024L;
-        }
-      }
-      return Long.parseLong(matcher.group(1)) * multiplier;
-    }
-    throw new IllegalArgumentException("Unrecognized number format " + number);
   }
 }
 
