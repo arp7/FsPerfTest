@@ -39,6 +39,7 @@ public class WriteFile {
   static long fileSize = -1;
   static long numFiles = 1;
   static int ioSize = 64 * 1024;
+  static short replication = 1;
   static long numThreads = 1;
   static boolean lazyPersist = false;
   static boolean hsync = false;
@@ -49,6 +50,8 @@ public class WriteFile {
   private static final class Stats {
     public AtomicLong totalTime = new AtomicLong(0);
     public AtomicLong totalWriteTime = new AtomicLong(0);
+    public AtomicLong dataWritten = new AtomicLong(0);
+    public AtomicLong filesWritten = new AtomicLong(0);
   }
 
   public static void main (String[] args) throws Exception {
@@ -108,7 +111,8 @@ public class WriteFile {
 
     try (FSDataOutputStream os = fs.create(
             p, FsPermission.getFileDefault(),
-            createFlags, BUFFER_SIZE, (short) 1, blockSize, null)) {
+            createFlags, BUFFER_SIZE, replication,
+            blockSize, null)) {
 
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
@@ -137,12 +141,16 @@ public class WriteFile {
       long endTime = System.nanoTime();
       stats.totalTime.addAndGet((endTime - startTime) / (1000000));
       stats.totalWriteTime.addAndGet((endTime - writeStartTime) / 1000000);
+      stats.filesWritten.addAndGet(1);
+      stats.dataWritten.addAndGet(fileSize);
     }
   }
 
   static private void writeStats(final Stats stats) {
+    System.out.println("Total files written: " +
+        FileUtils.byteCountToDisplaySize(stats.filesWritten.get()));
     System.out.println("Total data written: " +
-        FileUtils.byteCountToDisplaySize(fileSize));
+        FileUtils.byteCountToDisplaySize(stats.dataWritten.get()));
     System.out.println("Mean Time per file: " +
         stats.totalTime.get() / numFiles + "ms");
     System.out.println("Mean Time to create file on NN: " +
@@ -156,13 +164,16 @@ public class WriteFile {
 
   static private void usageAndExit() {
     System.err.println(
-        "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-n <numFiles>] " +
-        "\n                   [-i <ioSize>] [--lazyPersist] [--hsync|hflush] " +
-        "\n                   [-t <numThreads>] [--throttle] [--verbose]");
+        "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-r replication]" + 
+        "\n                   [-n <numFiles>] [-i <ioSize>] [--lazyPersist]" +
+        "\n                   [--hsync|hflush] [-t <numThreads>] [--throttle]" +
+        "\n                   [--verbose]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
         "\n   -b blockSize  : Specify the block size. Default 128MB");
+    System.err.println(
+        "\n   -r replication: Specify the replication factor. Default 1");
     System.err.println(
         "\n   -n numFiles   : Specify the number of Files. Default 1");
     System.err.println(
@@ -203,6 +214,8 @@ public class WriteFile {
         throttle = true;
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
         blockSize = parseReadableLong(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("-r")) {
+        replication = Short.parseShort(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-n")) {
         numFiles = parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-s")) {
