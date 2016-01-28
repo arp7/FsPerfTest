@@ -41,20 +41,20 @@ import static org.apache.hadoop.fs.CreateFlag.*;
 public class WriteFile {
   static final Logger LOG = LoggerFactory.getLogger(WriteFile.class);
 
-  static final int BUFFER_SIZE = 64 * 1024;
   static final Random rand = new Random(System.nanoTime()/1000);
 
   static Optional<Long> blockSize = Optional.absent();
   static Optional<Long> replication = Optional.absent();
   static Optional<Long> fileSize = Optional.absent();
-  static long numFiles = 1;
-  static int ioSize = 64 * 1024;
-  static long numThreads = 1;
+  static long numFiles = Constants.DEFAULT_NUM_FILES;
+  static int ioSize = Constants.DEFAULT_IO_LENGTH;
+  static long numThreads = Constants.DEFAULT_THREADS;
   static boolean lazyPersist = false;
   static boolean hsync = false;
   static boolean hflush = false;
   static boolean verbose = false;
   static boolean throttle = false;
+  static Path outputDir = new Path(Constants.DEFAULT_DIR);
 
   public static void main (String[] args) throws Exception {
     final Configuration conf = new HdfsConfiguration();
@@ -88,9 +88,10 @@ public class WriteFile {
         public Object call() throws Exception {
           long fileIndex = 0;
           while (filesLeft.addAndGet(-1) >= 0) {
-            final String fileName = "/WriteFile-" + runId +
+            final String fileName = "WriteFile-" + runId +
                 "-" + (threadIndex + 1) + "-" + (++fileIndex);
-            writeOneFile(stats, fs, data, fileName);
+            final Path file = new Path(outputDir, fileName);
+            writeOneFile(stats, fs, data, file);
           }
           return null;
         }
@@ -110,20 +111,19 @@ public class WriteFile {
   static void writeOneFile(final FileIoStats stats,
                            final FileSystem fs,
                            final byte[] data,
-                           final String fileName)
+                           final Path file)
   throws IOException, InterruptedException {
-    final Path p = new Path(fileName);
-
     long startTime = System.nanoTime();
     EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
     if (lazyPersist) {
       createFlags.add(LAZY_PERSIST);
     }
 
-    LOG.info("Writing file " + p);
+    LOG.info("Writing file " + file.toString());
 
     try (FSDataOutputStream os = fs.create(
-        p, FsPermission.getFileDefault(), createFlags, BUFFER_SIZE,
+        file, FsPermission.getFileDefault(), createFlags,
+        Constants.BUFFER_SIZE,
         replication.get().shortValue(), blockSize.get(), null)) {
 
       long lastLoggedPercent = 0;
@@ -152,33 +152,33 @@ public class WriteFile {
       }
 
       long endTime = System.nanoTime();
-      stats.totalTime.addAndGet((endTime - startTime) / 1000000);
-      stats.totalWriteTime.addAndGet((endTime - writeStartTime) / 1000000);
+      stats.totalTimeMs.addAndGet((endTime - startTime) / 1000000);
+      stats.totalWriteTimeMs.addAndGet((endTime - writeStartTime) / 1000000);
       stats.filesWritten.addAndGet(1);
-      stats.dataWritten.addAndGet(fileSize.get());
+      stats.bytesWritten.addAndGet(fileSize.get());
     }
   }
 
   static private void writeStats(final FileIoStats stats) {
     LOG.info("Total files written: " + stats.filesWritten.get());
     LOG.info("Total data written: " +
-        FileUtils.byteCountToDisplaySize(stats.dataWritten.get()));
-    LOG.info("Mean Time per file: " + stats.totalTime.get() / numFiles + "ms");
+        FileUtils.byteCountToDisplaySize(stats.bytesWritten.get()));
+    LOG.info("Mean Time per file: " + stats.totalTimeMs.get() / numFiles + " ms");
     LOG.info("Mean Time to create file on NN: " +
-        (stats.totalTime.get() - stats.totalWriteTime.get()) / numFiles + "ms");
+        (stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles + " ms");
     LOG.info("Mean Time to write data: " +
-        (stats.totalTime.get() / numFiles + "ms"));
+        (stats.totalTimeMs.get() / numFiles + "ms"));
     LOG.info("Mean throughput: " +
-      (stats.totalWriteTime.get() > 0 ? 
-          ((numFiles * fileSize.get()) / (stats.totalWriteTime.get())) : "Nan ") + "KBps");
+      (stats.totalWriteTimeMs.get() > 0 ? 
+          ((numFiles * fileSize.get()) / (stats.totalWriteTimeMs.get())) : "Nan ") + "KBps");
   }
 
   static private void usageAndExit() {
     System.err.println(
         "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-r replication]" + 
-        "\n                   [-n <numFiles>] [-i <ioSize>] [--lazyPersist]" +
-        "\n                   [--hsync|hflush] [-t <numThreads>] [--throttle]" +
-        "\n                   [--verbose]");
+        "\n                   [-n <numFiles>] [-i <ioSize>] [-t <numThreads>]" +
+        "\n                   [-o OutputDir] [--lazyPersist] [--hsync|hflush]" +
+        "\n                   [--throttle] [--verbose]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
@@ -186,11 +186,13 @@ public class WriteFile {
     System.err.println(
         "\n   -r replication: Replication factor. Default is 'dfs.replication'");
     System.err.println(
-        "\n   -n numFiles   : Specify the number of Files. Default is 1");
+        "\n   -n numFiles   : Specify the number of Files. Default is " + Constants.DEFAULT_NUM_FILES);
     System.err.println(
-        "\n   -i ioSize     : Specify the io size. Default 64KB");
+        "\n   -i ioSize     : Specify the io size. Default " + Constants.DEFAULT_IO_LENGTH);
     System.err.println(
-        "\n   -i numThreads : Number of writer threads. Default 1");
+        "\n   -t numThreads : Number of writer threads. Default " + Constants.DEFAULT_THREADS);
+    System.err.println(
+        "\n   -o outputDir  : Output Directory. Default " + Constants.DEFAULT_DIR);
     System.err.println(
         "\n   --lazyPersist : Sets CreateFlag.LAZY_PERSIST. Optional.");
     System.err.println(
@@ -223,20 +225,22 @@ public class WriteFile {
         verbose = true;
       } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
         throttle = true;
+      } else if (args[argIndex].equalsIgnoreCase("-s")) {
+        fileSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
         blockSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-r")) {
         replication = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-n")) {
         numFiles = Utils.parseReadableLong(args[++argIndex]);
-      } else if (args[argIndex].equalsIgnoreCase("-s")) {
-        fileSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-i")) {
         ioSize = Utils.parseReadableLong(args[++argIndex]).intValue();
       } else if (args[argIndex].equalsIgnoreCase("-t")) {
         numThreads = Utils.parseReadableLong(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("-o")) {
+        outputDir = new Path(args[++argIndex]);
       } else {
-        System.err.println("  Unknown option args[argIndex]");
+        System.err.println("  Unknown option " + args[argIndex]);
         usageAndExit();
       }
       ++argIndex;
@@ -245,7 +249,8 @@ public class WriteFile {
 
   static private void validateArgs(Configuration conf) {
     if (!fileSize.isPresent()) {
-      System.err.println("\n  The file size must be specified with -f");
+      System.err.println("\n  The file size must be specified with -f." +
+          "\n  All other parameters are optional.");
       usageAndExit();
     }
 

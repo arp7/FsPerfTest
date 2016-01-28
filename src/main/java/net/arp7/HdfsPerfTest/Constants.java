@@ -18,15 +18,11 @@
 
 package net.arp7.HdfsPerfTest;
 
-import java.util.concurrent.atomic.AtomicLong;
 
-
-class FileIoStats {
-  public AtomicLong totalTimeMs = new AtomicLong(0);
-  public AtomicLong totalWriteTimeMs = new AtomicLong(0);
-  public AtomicLong totalReadTimeMs = new AtomicLong(0);
-  public AtomicLong bytesWritten = new AtomicLong(0);
-  public AtomicLong bytesRead = new AtomicLong(0);
-  public AtomicLong filesWritten = new AtomicLong(0);
-  public AtomicLong filesRead = new AtomicLong(0);
+class Constants {
+  static final String DEFAULT_DIR = "/tmp/HdfsPerfTest";
+  static final int BUFFER_SIZE = 64 * 1024;
+  static final int DEFAULT_IO_LENGTH = 64 * 1024;
+  static final int DEFAULT_THREADS = 1;
+  static final int DEFAULT_NUM_FILES = 1;
 }
