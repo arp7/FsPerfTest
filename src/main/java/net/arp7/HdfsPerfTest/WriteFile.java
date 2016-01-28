@@ -25,10 +25,12 @@ import java.util.concurrent.atomic.*;
 
 import static java.lang.Math.abs;
 
+import com.google.common.base.Optional;
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 
 import org.slf4j.Logger;
@@ -42,11 +44,11 @@ public class WriteFile {
   static final int BUFFER_SIZE = 64 * 1024;
   static final Random rand = new Random(System.nanoTime()/1000);
 
-  static long blockSize = 128 * 1024 * 1024;
-  static long fileSize = -1;
+  static Optional<Long> blockSize = Optional.absent();
+  static Optional<Long> replication = Optional.absent();
+  static Optional<Long> fileSize = Optional.absent();
   static long numFiles = 1;
   static int ioSize = 64 * 1024;
-  static short replication = 1;
   static long numThreads = 1;
   static boolean lazyPersist = false;
   static boolean hsync = false;
@@ -55,14 +57,15 @@ public class WriteFile {
   static boolean throttle = false;
 
   public static void main (String[] args) throws Exception {
+    final Configuration conf = new HdfsConfiguration();
+
     parseArgs(args);
-    validateArgs();
+    validateArgs(conf);
 
     final byte[] data = new byte[ioSize];
     Arrays.fill(data, (byte) 65);
 
     final FileIoStats stats = new FileIoStats();
-    final Configuration conf = new HdfsConfiguration();
     final FileSystem fs = FileSystem.get(conf);
     final AtomicLong filesLeft = new AtomicLong(numFiles);
     final long runId = abs(rand.nextLong());
@@ -72,9 +75,10 @@ public class WriteFile {
     CompletionService<Object> ecs =
         new ExecutorCompletionService<>(executor);
     LOG.info("NumFiles=" + numFiles +
-        ", FileSize=" + FileUtils.byteCountToDisplaySize(fileSize) +
+        ", FileSize=" + FileUtils.byteCountToDisplaySize(fileSize.get()) +
         ", IoSize=" + FileUtils.byteCountToDisplaySize(ioSize) +
-        ", ReplicationFactor=" + replication);
+        ", BlockSize=" + FileUtils.byteCountToDisplaySize(blockSize.get()) +
+        ", ReplicationFactor=" + replication.get());
     LOG.info("Starting " + numThreads + " writer thread" +
         (numThreads > 1 ? "s" : "") + ".");
     for (long t = 0; t < numThreads; ++t) {
@@ -119,13 +123,12 @@ public class WriteFile {
     LOG.info("Writing file " + p);
 
     try (FSDataOutputStream os = fs.create(
-            p, FsPermission.getFileDefault(),
-            createFlags, BUFFER_SIZE, replication,
-            blockSize, null)) {
+        p, FsPermission.getFileDefault(), createFlags, BUFFER_SIZE,
+        replication.get().shortValue(), blockSize.get(), null)) {
 
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
-      for (long j = 0; j < fileSize / ioSize; ++j) {
+      for (long j = 0; j < fileSize.get() / ioSize; ++j) {
         os.write(data, 0, data.length);
 
         if (hsync) {
@@ -139,10 +142,10 @@ public class WriteFile {
         }
 
         if (LOG.isDebugEnabled()) {
-          long percentWritten = (j * ioSize * 100) / fileSize;
+          long percentWritten = (j * ioSize * 100) / fileSize.get();
           if (percentWritten > lastLoggedPercent) {
             LOG.debug("  >> Wrote " + j * ioSize + "/" +
-                fileSize + " [" + percentWritten + "%]");
+                fileSize.get() + " [" + percentWritten + "%]");
             lastLoggedPercent = percentWritten;
           }
         }
@@ -152,7 +155,7 @@ public class WriteFile {
       stats.totalTime.addAndGet((endTime - startTime) / 1000000);
       stats.totalWriteTime.addAndGet((endTime - writeStartTime) / 1000000);
       stats.filesWritten.addAndGet(1);
-      stats.dataWritten.addAndGet(fileSize);
+      stats.dataWritten.addAndGet(fileSize.get());
     }
   }
 
@@ -167,7 +170,7 @@ public class WriteFile {
         (stats.totalTime.get() / numFiles + "ms"));
     LOG.info("Mean throughput: " +
       (stats.totalWriteTime.get() > 0 ? 
-          ((numFiles * fileSize) / (stats.totalWriteTime.get())) : "Nan ") + "KBps");
+          ((numFiles * fileSize.get()) / (stats.totalWriteTime.get())) : "Nan ") + "KBps");
   }
 
   static private void usageAndExit() {
@@ -179,11 +182,11 @@ public class WriteFile {
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
-        "\n   -b blockSize  : Specify the block size. Default 128MB");
+        "\n   -b blockSize  : HDFS block size. Default is 'dfs.blocksize'");
     System.err.println(
-        "\n   -r replication: Specify the replication factor. Default 1");
+        "\n   -r replication: Replication factor. Default is 'dfs.replication'");
     System.err.println(
-        "\n   -n numFiles   : Specify the number of Files. Default 1");
+        "\n   -n numFiles   : Specify the number of Files. Default is 1");
     System.err.println(
         "\n   -i ioSize     : Specify the io size. Default 64KB");
     System.err.println(
@@ -221,13 +224,13 @@ public class WriteFile {
       } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
         throttle = true;
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
-        blockSize = Utils.parseReadableLong(args[++argIndex]);
+        blockSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-r")) {
-        replication = Short.parseShort(args[++argIndex]);
+        replication = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-n")) {
         numFiles = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-s")) {
-        fileSize = Utils.parseReadableLong(args[++argIndex]);
+        fileSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
       } else if (args[argIndex].equalsIgnoreCase("-i")) {
         ioSize = Utils.parseReadableLong(args[++argIndex]).intValue();
       } else if (args[argIndex].equalsIgnoreCase("-t")) {
@@ -240,8 +243,8 @@ public class WriteFile {
     }
   }
 
-  static private void validateArgs() {
-    if (fileSize == -1) {
+  static private void validateArgs(Configuration conf) {
+    if (!fileSize.isPresent()) {
       System.err.println("\n  The file size must be specified with -f");
       usageAndExit();
     }
@@ -255,10 +258,30 @@ public class WriteFile {
       System.err.println("\n  numThreads must be between 1 and 64 inclusive.");
     }
 
-    if (fileSize < ioSize) {
+    if (fileSize.get() < ioSize) {
       // Correctly handle small files.
-      ioSize = (int) fileSize;
+      ioSize = fileSize.get().intValue();
+    }
+    
+    if (!blockSize.isPresent()) {
+      // No block size specified.
+      blockSize = Optional.of(conf.getLong(
+          DFSConfigKeys.DFS_BLOCK_SIZE_KEY,
+          DFSConfigKeys.DFS_BLOCK_SIZE_DEFAULT));
+    }
+    
+    if (!replication.isPresent()) {
+      // No replication factor specified.
+      replication = Optional.of(conf.getLong(
+          DFSConfigKeys.DFS_REPLICATION_KEY,
+          DFSConfigKeys.DFS_REPLICATION_DEFAULT));
+      
+    }
+    
+    if (replication.get() > Short.MAX_VALUE) {
+      System.err.println("\n The replication factor " +
+          replication.get() + " is too high.");
+      System.exit(2);
     }
   }
 }
-
