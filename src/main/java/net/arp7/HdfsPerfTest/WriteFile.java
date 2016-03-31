@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.*;
 
 import static java.lang.Math.abs;
 
-import com.google.common.base.Optional;
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
@@ -38,51 +37,59 @@ import org.slf4j.LoggerFactory;
 
 import static org.apache.hadoop.fs.CreateFlag.*;
 
+/**
+ * A utility for benchmarking HDFS write performance with a multi-threaded
+ * client. See {@link #usage} for all the supported options. 
+ */
 public class WriteFile {
-  static final Logger LOG = LoggerFactory.getLogger(WriteFile.class);
+  private static final Logger LOG = LoggerFactory.getLogger(WriteFile.class);
 
-  static final Random rand = new Random(System.nanoTime()/1000);
+  private static final Random rand = new Random(System.nanoTime()/1000);
+  private static long blockSize;
+  private static long replication;
+  private static long fileSize = -1;
+  private static Path outputDir = new Path(Constants.DEFAULT_DIR);
+  private static long numFiles = Constants.DEFAULT_NUM_FILES;
+  private static int ioSize = Constants.DEFAULT_IO_LENGTH;
+  private static long numThreads = Constants.DEFAULT_THREADS;
+  private static boolean lazyPersist = false;
+  private static boolean hsync = false;
+  private static boolean hflush = false;
+  private static boolean throttle = false;
 
-  static Optional<Long> blockSize = Optional.absent();
-  static Optional<Long> replication = Optional.absent();
-  static Optional<Long> fileSize = Optional.absent();
-  static long numFiles = Constants.DEFAULT_NUM_FILES;
-  static int ioSize = Constants.DEFAULT_IO_LENGTH;
-  static long numThreads = Constants.DEFAULT_THREADS;
-  static boolean lazyPersist = false;
-  static boolean hsync = false;
-  static boolean hflush = false;
-  static boolean verbose = false;
-  static boolean throttle = false;
-  static Path outputDir = new Path(Constants.DEFAULT_DIR);
-
-  public static void main (String[] args) throws Exception {
+  public static void main(String[] args) throws Exception {
     final Configuration conf = new HdfsConfiguration();
 
+    initDefaultsFromConfiguration(conf);
     parseArgs(args);
-    validateArgs(conf);
-
-    final byte[] data = new byte[ioSize];
-    Arrays.fill(data, (byte) 65);
+    validateArgs();
 
     final FileIoStats stats = new FileIoStats();
+    writeFiles(conf, stats);
+    writeStats(stats);
+  }
+
+  private static void writeFiles(final Configuration conf, final FileIoStats stats)
+      throws InterruptedException, IOException {
     final FileSystem fs = FileSystem.get(conf);
     final AtomicLong filesLeft = new AtomicLong(numFiles);
     final long runId = abs(rand.nextLong());
-
+    final byte[] data = new byte[ioSize];
+    Arrays.fill(data, (byte) 65);
+    
     // Start the writers.
     ExecutorService executor = Executors.newFixedThreadPool((int) numThreads);
     CompletionService<Object> ecs =
         new ExecutorCompletionService<>(executor);
     LOG.info("NumFiles=" + numFiles +
-        ", FileSize=" + FileUtils.byteCountToDisplaySize(fileSize.get()) +
+        ", FileSize=" + FileUtils.byteCountToDisplaySize(fileSize) +
         ", IoSize=" + FileUtils.byteCountToDisplaySize(ioSize) +
-        ", BlockSize=" + FileUtils.byteCountToDisplaySize(blockSize.get()) +
-        ", ReplicationFactor=" + replication.get());
+        ", BlockSize=" + FileUtils.byteCountToDisplaySize(blockSize) +
+        ", ReplicationFactor=" + replication);
     LOG.info("Starting " + numThreads + " writer thread" +
         (numThreads > 1 ? "s" : "") + ".");
     for (long t = 0; t < numThreads; ++t) {
-      final long threadIndex = t; 
+      final long threadIndex = t;
       Callable<Object> c = new Callable<Object>() {
         @Override
         public Object call() throws Exception {
@@ -90,8 +97,7 @@ public class WriteFile {
           while (filesLeft.addAndGet(-1) >= 0) {
             final String fileName = "WriteFile-" + runId +
                 "-" + (threadIndex + 1) + "-" + (++fileIndex);
-            final Path file = new Path(outputDir, fileName);
-            writeOneFile(stats, fs, data, file);
+            writeOneFile(new Path(outputDir, fileName), fs, data, stats);
           }
           return null;
         }
@@ -105,14 +111,22 @@ public class WriteFile {
     }
 
     executor.shutdown();
-    writeStats(stats);
   }
 
-  static void writeOneFile(final FileIoStats stats,
-                           final FileSystem fs,
-                           final byte[] data,
-                           final Path file)
-  throws IOException, InterruptedException {
+
+  /**
+   * Write a single file to HDFS.
+   *
+   * @param file
+   * @param fs
+   * @param data
+   * @param stats object to accumulate write stats.
+   * @throws IOException
+   * @throws InterruptedException
+   */
+  private static void writeOneFile(
+      final Path file, final FileSystem fs, final byte[] data,
+      final FileIoStats stats) throws IOException, InterruptedException {
     long startTime = System.nanoTime();
     EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
     if (lazyPersist) {
@@ -124,11 +138,11 @@ public class WriteFile {
     try (FSDataOutputStream os = fs.create(
         file, FsPermission.getFileDefault(), createFlags,
         Constants.BUFFER_SIZE,
-        replication.get().shortValue(), blockSize.get(), null)) {
+        (short) replication, blockSize, null)) {
 
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
-      for (long j = 0; j < fileSize.get() / ioSize; ++j) {
+      for (long j = 0; j < fileSize / ioSize; ++j) {
         os.write(data, 0, data.length);
 
         if (hsync) {
@@ -142,10 +156,10 @@ public class WriteFile {
         }
 
         if (LOG.isDebugEnabled()) {
-          long percentWritten = (j * ioSize * 100) / fileSize.get();
+          long percentWritten = (j * ioSize * 100) / fileSize;
           if (percentWritten > lastLoggedPercent) {
             LOG.debug("  >> Wrote " + j * ioSize + "/" +
-                fileSize.get() + " [" + percentWritten + "%]");
+                fileSize + " [" + percentWritten + "%]");
             lastLoggedPercent = percentWritten;
           }
         }
@@ -155,7 +169,7 @@ public class WriteFile {
       stats.totalTimeMs.addAndGet((endTime - startTime) / 1000000);
       stats.totalWriteTimeMs.addAndGet((endTime - writeStartTime) / 1000000);
       stats.filesWritten.addAndGet(1);
-      stats.bytesWritten.addAndGet(fileSize.get());
+      stats.bytesWritten.addAndGet(fileSize);
     }
   }
 
@@ -170,15 +184,15 @@ public class WriteFile {
         (stats.totalTimeMs.get() / numFiles + "ms"));
     LOG.info("Mean throughput: " +
       (stats.totalWriteTimeMs.get() > 0 ? 
-          ((numFiles * fileSize.get()) / (stats.totalWriteTimeMs.get())) : "Nan ") + "KBps");
+          ((numFiles * fileSize) / (stats.totalWriteTimeMs.get())) : "Nan ") + "KBps");
   }
 
-  static private void usageAndExit() {
+  static private void usage() {
     System.err.println(
         "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-r replication]" + 
         "\n                   [-n <numFiles>] [-i <ioSize>] [-t <numThreads>]" +
         "\n                   [-o OutputDir] [--lazyPersist] [--hsync|hflush]" +
-        "\n                   [--throttle] [--verbose]");
+        "\n                   [--throttle]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
@@ -206,9 +220,6 @@ public class WriteFile {
     System.err.println(
         "\n   --throttle    : Adds artificial throttle. The rate of throttling " +
         "\n                   is not configurable. Optional.");
-    System.err.println(
-        "\n   --verbose     : Print verbose messages. Optional.");
-    System.exit(1);
   }
 
   static private void parseArgs(String[] args) {
@@ -221,16 +232,14 @@ public class WriteFile {
         hsync = true;
       } else if (args[argIndex].equalsIgnoreCase("--hflush")) {
         hflush = true;
-      } else if (args[argIndex].equalsIgnoreCase("--verbose")) {
-        verbose = true;
       } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
         throttle = true;
       } else if (args[argIndex].equalsIgnoreCase("-s")) {
-        fileSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
+        fileSize = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
-        blockSize = Optional.of(Utils.parseReadableLong(args[++argIndex]));
+        blockSize = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-r")) {
-        replication = Optional.of(Utils.parseReadableLong(args[++argIndex]));
+        replication = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-n")) {
         numFiles = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-i")) {
@@ -241,51 +250,53 @@ public class WriteFile {
         outputDir = new Path(args[++argIndex]);
       } else {
         System.err.println("  Unknown option " + args[argIndex]);
-        usageAndExit();
+        usage();
+        System.exit(1);
       }
       ++argIndex;
     }
   }
 
-  static private void validateArgs(Configuration conf) {
-    if (!fileSize.isPresent()) {
-      System.err.println("\n  The file size must be specified with -f." +
-          "\n  All other parameters are optional.");
-      usageAndExit();
+  /**
+   * Initialize some write parameters from the configuration.
+   *
+   * @param conf
+   */
+  private static void initDefaultsFromConfiguration(Configuration conf) {
+    blockSize = conf.getLong(
+        DFSConfigKeys.DFS_BLOCK_SIZE_KEY,
+        DFSConfigKeys.DFS_BLOCK_SIZE_DEFAULT);
+
+    replication = conf.getLong(
+        DFSConfigKeys.DFS_REPLICATION_KEY,
+        DFSConfigKeys.DFS_REPLICATION_DEFAULT);
+  }
+  
+  static private void validateArgs() {
+    if (fileSize < 0) {
+      System.err.println("\n  The file size must be specified with -s." +
+          "\n  All other parameters are optional.\n");
+      System.exit(1);
     }
 
     if (hsync && hflush) {
       System.err.println("\n  Cannot specify both --hsync and --hflush");
-      usageAndExit();
+      usage();
+      System.exit(2);
     }
 
     if (numThreads < 1 || numThreads > 64) {
       System.err.println("\n  numThreads must be between 1 and 64 inclusive.");
     }
 
-    if (fileSize.get() < ioSize) {
+    if (fileSize < ioSize) {
       // Correctly handle small files.
-      ioSize = fileSize.get().intValue();
+      ioSize = (int) fileSize;
     }
     
-    if (!blockSize.isPresent()) {
-      // No block size specified.
-      blockSize = Optional.of(conf.getLong(
-          DFSConfigKeys.DFS_BLOCK_SIZE_KEY,
-          DFSConfigKeys.DFS_BLOCK_SIZE_DEFAULT));
-    }
-    
-    if (!replication.isPresent()) {
-      // No replication factor specified.
-      replication = Optional.of(conf.getLong(
-          DFSConfigKeys.DFS_REPLICATION_KEY,
-          DFSConfigKeys.DFS_REPLICATION_DEFAULT));
-      
-    }
-    
-    if (replication.get() > Short.MAX_VALUE) {
-      System.err.println("\n The replication factor " +
-          replication.get() + " is too high.");
+    if (replication > Short.MAX_VALUE) {
+      System.err.println("\n Replication factor " + replication +
+          " is too high.");
       System.exit(2);
     }
   }
