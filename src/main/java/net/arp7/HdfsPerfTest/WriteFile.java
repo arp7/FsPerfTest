@@ -19,6 +19,7 @@
 package net.arp7.HdfsPerfTest;
 
 import java.io.*;
+import java.text.NumberFormat;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -56,6 +57,7 @@ public class WriteFile {
   private static boolean hsync = false;
   private static boolean hflush = false;
   private static boolean throttle = false;
+  private static final Locale locale = Locale.getDefault();
 
   public static void main(String[] args) throws Exception {
     final Configuration conf = new HdfsConfiguration();
@@ -88,6 +90,7 @@ public class WriteFile {
         ", ReplicationFactor=" + replication);
     LOG.info("Starting " + numThreads + " writer thread" +
         (numThreads > 1 ? "s" : "") + ".");
+    final long startTime = System.nanoTime();
     for (long t = 0; t < numThreads; ++t) {
       final long threadIndex = t;
       Callable<Object> c = new Callable<Object>() {
@@ -109,7 +112,8 @@ public class WriteFile {
     for (long t = 0; t < numThreads; ++t) {
       ecs.take();
     }
-
+    final long endTime = System.nanoTime();
+    stats.elapsedTime.set((endTime - startTime) / 1000000);
     executor.shutdown();
   }
 
@@ -177,14 +181,28 @@ public class WriteFile {
     LOG.info("Total files written: " + stats.filesWritten.get());
     LOG.info("Total data written: " +
         FileUtils.byteCountToDisplaySize(stats.bytesWritten.get()));
-    LOG.info("Mean Time per file: " + stats.totalTimeMs.get() / numFiles + " ms");
-    LOG.info("Mean Time to create file on NN: " +
-        (stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles + " ms");
-    LOG.info("Mean Time to write data: " +
-        (stats.totalTimeMs.get() / numFiles + "ms"));
-    LOG.info("Mean throughput: " +
-      (stats.totalWriteTimeMs.get() > 0 ? 
-          ((numFiles * fileSize) / (stats.totalWriteTimeMs.get())) : "Nan ") + "KBps");
+    LOG.info("Mean Time to create each file on NN: " +
+        formatNumber((stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles)
+        + " ms");
+    LOG.info("Mean Time to write each file: " +
+        formatNumber(stats.totalTimeMs.get() / numFiles) + "ms");
+    LOG.info("Total elapsed time: " + formatNumber(stats.elapsedTime.get()) +
+        " ms");
+    long throughput = 0;
+    if (stats.elapsedTime.get() > 0) {
+      throughput = (numFiles * fileSize) / stats.elapsedTime.get();
+    }
+    LOG.info("Aggregate throughput: " + formatNumber(throughput) + " KBps");
+  }
+
+  /**
+   * Pretty print the supplied number.
+   *
+   * @param number
+   * @return
+   */
+  static private String formatNumber(long number) {
+    return NumberFormat.getInstance(locale).format(number);
   }
 
   static private void usage() {

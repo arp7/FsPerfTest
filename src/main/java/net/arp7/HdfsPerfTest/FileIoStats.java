@@ -29,4 +29,5 @@ class FileIoStats {
   public AtomicLong bytesRead = new AtomicLong(0);
   public AtomicLong filesWritten = new AtomicLong(0);
   public AtomicLong filesRead = new AtomicLong(0);
+  public AtomicLong elapsedTime = new AtomicLong(0);
 }
