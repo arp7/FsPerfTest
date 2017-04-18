@@ -26,6 +26,9 @@ import java.util.concurrent.atomic.*;
 
 import static java.lang.Math.abs;
 
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.dataformat.csv.CsvMapper;
+import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import org.apache.hadoop.conf.*;
 import org.apache.hadoop.fs.*;
 import org.apache.commons.io.FileUtils;
@@ -50,6 +53,7 @@ public class WriteFile {
   private static long replication;
   private static long fileSize = -1;
   private static Path outputDir = new Path(Constants.DEFAULT_DIR);
+  private static File resultCsvFile = null;
   private static long numFiles = Constants.DEFAULT_NUM_FILES;
   private static int ioSize = Constants.DEFAULT_IO_LENGTH;
   private static long numThreads = Constants.DEFAULT_THREADS;
@@ -57,6 +61,7 @@ public class WriteFile {
   private static boolean hsync = false;
   private static boolean hflush = false;
   private static boolean throttle = false;
+  private static String note = "";
   private static final Locale locale = Locale.getDefault();
 
   public static void main(String[] args) throws Exception {
@@ -69,6 +74,9 @@ public class WriteFile {
     final FileIoStats stats = new FileIoStats();
     writeFiles(conf, stats);
     writeStats(stats);
+    if (resultCsvFile != null) {
+      writeCsvResult(stats);
+    }
   }
 
   private static void writeFiles(final Configuration conf, final FileIoStats stats)
@@ -195,6 +203,53 @@ public class WriteFile {
     LOG.info("Aggregate throughput: " + formatNumber(throughput) + " KBps");
   }
 
+  private static void writeCsvResult(final FileIoStats stats) {
+    Object[] results = new Object[]{
+            new Date().toGMTString(),
+            numFiles,
+            numThreads,
+            replication,
+            blockSize,
+            ioSize,
+            stats.filesWritten.get(),
+            stats.bytesWritten.get(),
+            (stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles,
+            (stats.totalTimeMs.get() / numFiles),
+            stats.elapsedTime.get(),
+            (fileSize * 1000) / stats.elapsedTime.get(),
+            (numFiles * fileSize * 1000) / stats.elapsedTime.get(),
+            note
+    };
+
+    CsvSchema schema = CsvSchema.builder()
+            .setColumnSeparator(';')
+            .setQuoteChar('"')
+            .setUseHeader(!resultCsvFile.exists())
+            .addColumn("timestamp", CsvSchema.ColumnType.STRING)
+            .addColumn("number of files", CsvSchema.ColumnType.NUMBER)
+            .addColumn("number of threads", CsvSchema.ColumnType.NUMBER)
+            .addColumn("replication factor", CsvSchema.ColumnType.NUMBER)
+            .addColumn("block size", CsvSchema.ColumnType.NUMBER)
+            .addColumn("io size", CsvSchema.ColumnType.NUMBER)
+            .addColumn("total files written", CsvSchema.ColumnType.NUMBER)
+            .addColumn("total bytes written", CsvSchema.ColumnType.NUMBER)
+            .addColumn("mean file creation ms", CsvSchema.ColumnType.NUMBER)
+            .addColumn("mean file writing ms", CsvSchema.ColumnType.NUMBER)
+            .addColumn("total ms", CsvSchema.ColumnType.NUMBER)
+            .addColumn("mean throughput bytes per s", CsvSchema.ColumnType.NUMBER)
+            .addColumn("aggregate throughput bytes per s", CsvSchema.ColumnType.NUMBER)
+            .addColumn("note", CsvSchema.ColumnType.STRING)
+            .build();
+
+    try (FileWriter fileWriter = new FileWriter(resultCsvFile, true)) {
+      CsvMapper mapper = new CsvMapper();
+      ObjectWriter writer = mapper.writer(schema);
+      writer.writeValue(fileWriter, results);
+    } catch (IOException e) {
+      LOG.error("Could not write results to CSV file '{}': '{}'", resultCsvFile.getPath(), e.getMessage());
+    }
+  }
+
   /**
    * Pretty print the supplied number.
    *
@@ -210,6 +265,7 @@ public class WriteFile {
         "\n  Usage: WriteFile -s <fileSize> [-b <blockSize>] [-r replication]" + 
         "\n                   [-n <numFiles>] [-i <ioSize>] [-t <numThreads>]" +
         "\n                   [-o OutputDir] [--lazyPersist] [--hsync|hflush]" +
+        "\n                   [--resultCsv <file>] [--resultNote <note>]" +
         "\n                   [--throttle]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
@@ -236,8 +292,12 @@ public class WriteFile {
     System.err.println(
         "\n                   Cannot be used with --hsync.");
     System.err.println(
-        "\n   --throttle    : Adds artificial throttle. The rate of throttling " +
-        "\n                   is not configurable. Optional.");
+        "\n   --resultCsv   : Appends benchmark results to specified CSV file. Optional.");
+    System.err.println(
+        "\n   --resultNote  : Note to include in result CSV file. Optional.");
+    System.err.println(
+            "\n   --throttle    : Adds artificial throttle. The rate of throttling " +
+                    "\n                   is not configurable. Optional.");
   }
 
   static private void parseArgs(String[] args) {
@@ -266,6 +326,10 @@ public class WriteFile {
         numThreads = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-o")) {
         outputDir = new Path(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("--resultCsv")) {
+        resultCsvFile = new File(args[++argIndex]);
+      } else if (args[argIndex].equalsIgnoreCase("--resultNote")) {
+        note = args[++argIndex];
       } else {
         System.err.println("  Unknown option " + args[argIndex]);
         usage();

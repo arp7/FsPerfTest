@@ -21,6 +21,19 @@
         <artifactId>findbugs-maven-plugin</artifactId>
         <version>3.0.1</version>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>2.4.3</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
   <packaging>jar</packaging>
@@ -61,6 +74,11 @@
       <artifactId>slf4j-log4j12</artifactId>
       <version>1.7.14</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-csv</artifactId>
+      <version>2.2.3</version>
     </dependency>
   </dependencies>
 </project>
