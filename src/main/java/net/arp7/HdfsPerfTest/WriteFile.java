@@ -48,7 +48,7 @@ import static org.apache.hadoop.fs.CreateFlag.*;
 public class WriteFile {
   private static final Logger LOG = LoggerFactory.getLogger(WriteFile.class);
 
-  private static final Random rand = new Random(System.nanoTime()/1000);
+  private static final Random rand = new Random(System.nanoTime());
   private static long blockSize;
   private static long replication;
   private static long fileSize = -1;
@@ -121,7 +121,7 @@ public class WriteFile {
       ecs.take();
     }
     final long endTime = System.nanoTime();
-    stats.elapsedTime.set((endTime - startTime) / 1000000);
+    stats.setElapsedTime(endTime - startTime);
     executor.shutdown();
   }
 
@@ -139,19 +139,22 @@ public class WriteFile {
   private static void writeOneFile(
       final Path file, final FileSystem fs, final byte[] data,
       final FileIoStats stats) throws IOException, InterruptedException {
-    long startTime = System.nanoTime();
-    EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
+
+    final long startTime = System.nanoTime();
+    final EnumSet<CreateFlag> createFlags = EnumSet.of(CREATE, OVERWRITE);
     if (lazyPersist) {
       createFlags.add(LAZY_PERSIST);
     }
 
     LOG.info("Writing file " + file.toString());
-
-    try (FSDataOutputStream os = fs.create(
+    final FSDataOutputStream os = fs.create(
         file, FsPermission.getFileDefault(), createFlags,
         Constants.BUFFER_SIZE,
-        (short) replication, blockSize, null)) {
-
+        (short) replication, blockSize, null);
+    final long createEndTime = System.nanoTime();
+    stats.addCreateTime(createEndTime - startTime);
+    
+    try {
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
       for (long j = 0; j < fileSize / ioSize; ++j) {
@@ -177,28 +180,33 @@ public class WriteFile {
         }
       }
 
-      long endTime = System.nanoTime();
-      stats.totalTimeMs.addAndGet((endTime - startTime) / 1000000);
-      stats.totalWriteTimeMs.addAndGet((endTime - writeStartTime) / 1000000);
-      stats.filesWritten.addAndGet(1);
-      stats.bytesWritten.addAndGet(fileSize);
+      final long writeEndTime = System.nanoTime();
+      stats.addWriteTime(writeEndTime - writeStartTime);
+      stats.incrFilesWritten();
+      stats.incrBytesWritten(fileSize);
+    } finally {
+      final long closeStartTime = System.nanoTime();
+      os.close();
+      final long closeEndTime = System.nanoTime();
+      stats.addCloseTime(closeEndTime - closeStartTime);
     }
   }
 
   static private void writeStats(final FileIoStats stats) {
-    LOG.info("Total files written: " + stats.filesWritten.get());
+    LOG.info("Total files written: " + stats.getFilesWritten());
     LOG.info("Total data written: " +
-        FileUtils.byteCountToDisplaySize(stats.bytesWritten.get()));
+        FileUtils.byteCountToDisplaySize(stats.getBytesWritten()));
     LOG.info("Mean Time to create each file on NN: " +
-        formatNumber((stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles)
-        + " ms");
+        String.format("%.2f", stats.getMeanCreateTimeMs()) + " ms");
     LOG.info("Mean Time to write each file: " +
-        formatNumber(stats.totalTimeMs.get() / numFiles) + "ms");
-    LOG.info("Total elapsed time: " + formatNumber(stats.elapsedTime.get()) +
+        String.format("%.2f", stats.getMeanWriteTimeMs()) + " ms");
+    LOG.info("Mean Time to close each file: " +
+        String.format("%.2f", stats.getMeanCloseTimeMs()) + " ms");
+    LOG.info("Total elapsed time: " + formatNumber(stats.getElapsedTimeMs()) +
         " ms");
     long throughput = 0;
-    if (stats.elapsedTime.get() > 0) {
-      throughput = (numFiles * fileSize) / stats.elapsedTime.get();
+    if (stats.getElapsedTimeMs() > 0) {
+      throughput = (numFiles * fileSize) / stats.getElapsedTimeMs();
     }
     LOG.info("Aggregate throughput: " + formatNumber(throughput) + " KBps");
   }
@@ -211,35 +219,37 @@ public class WriteFile {
             replication,
             blockSize,
             ioSize,
-            stats.filesWritten.get(),
-            stats.bytesWritten.get(),
-            (stats.totalTimeMs.get() - stats.totalWriteTimeMs.get()) / numFiles,
-            (stats.totalTimeMs.get() / numFiles),
-            stats.elapsedTime.get(),
-            (fileSize * 1000) / stats.elapsedTime.get(),
-            (numFiles * fileSize * 1000) / stats.elapsedTime.get(),
+            stats.getFilesWritten(),
+            stats.getBytesWritten(),
+            stats.getMeanCreateTimeMs(),
+            stats.getMeanWriteTimeMs(),
+            stats.getMeanCloseTimeMs(),
+            stats.getElapsedTimeMs(),
+            (fileSize * 1000) / stats.getElapsedTimeMs(),
+            (numFiles * fileSize * 1000) / stats.getElapsedTimeMs(),
             note
     };
 
     CsvSchema schema = CsvSchema.builder()
-            .setColumnSeparator(';')
-            .setQuoteChar('"')
-            .setUseHeader(!resultCsvFile.exists())
-            .addColumn("timestamp", CsvSchema.ColumnType.STRING)
-            .addColumn("number of files", CsvSchema.ColumnType.NUMBER)
-            .addColumn("number of threads", CsvSchema.ColumnType.NUMBER)
-            .addColumn("replication factor", CsvSchema.ColumnType.NUMBER)
-            .addColumn("block size", CsvSchema.ColumnType.NUMBER)
-            .addColumn("io size", CsvSchema.ColumnType.NUMBER)
-            .addColumn("total files written", CsvSchema.ColumnType.NUMBER)
-            .addColumn("total bytes written", CsvSchema.ColumnType.NUMBER)
-            .addColumn("mean file creation ms", CsvSchema.ColumnType.NUMBER)
-            .addColumn("mean file writing ms", CsvSchema.ColumnType.NUMBER)
-            .addColumn("total ms", CsvSchema.ColumnType.NUMBER)
-            .addColumn("mean throughput bytes per s", CsvSchema.ColumnType.NUMBER)
-            .addColumn("aggregate throughput bytes per s", CsvSchema.ColumnType.NUMBER)
-            .addColumn("note", CsvSchema.ColumnType.STRING)
-            .build();
+        .setColumnSeparator(';')
+        .setQuoteChar('"')
+        .setUseHeader(!resultCsvFile.exists())
+        .addColumn("timestamp", CsvSchema.ColumnType.STRING)
+        .addColumn("number of files", CsvSchema.ColumnType.NUMBER)
+        .addColumn("number of threads", CsvSchema.ColumnType.NUMBER)
+        .addColumn("replication factor", CsvSchema.ColumnType.NUMBER)
+        .addColumn("block size", CsvSchema.ColumnType.NUMBER)
+        .addColumn("io size", CsvSchema.ColumnType.NUMBER)
+        .addColumn("total files written", CsvSchema.ColumnType.NUMBER)
+        .addColumn("total bytes written", CsvSchema.ColumnType.NUMBER)
+        .addColumn("mean time to create file in ms", CsvSchema.ColumnType.NUMBER)
+        .addColumn("mean time to write file in ms", CsvSchema.ColumnType.NUMBER)
+        .addColumn("mean time to close file in ms", CsvSchema.ColumnType.NUMBER)
+        .addColumn("total ms", CsvSchema.ColumnType.NUMBER)
+        .addColumn("mean throughput bytes per s", CsvSchema.ColumnType.NUMBER)
+        .addColumn("aggregate throughput bytes per s", CsvSchema.ColumnType.NUMBER)
+        .addColumn("note", CsvSchema.ColumnType.STRING)
+        .build();
 
     try (FileWriter fileWriter = new FileWriter(resultCsvFile, true)) {
       CsvMapper mapper = new CsvMapper();

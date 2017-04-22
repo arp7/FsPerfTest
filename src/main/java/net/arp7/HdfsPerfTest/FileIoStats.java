@@ -18,16 +18,64 @@
 
 package net.arp7.HdfsPerfTest;
 
+import com.google.common.util.concurrent.AtomicDouble;
+
 import java.util.concurrent.atomic.AtomicLong;
 
 
 class FileIoStats {
-  public AtomicLong totalTimeMs = new AtomicLong(0);
-  public AtomicLong totalWriteTimeMs = new AtomicLong(0);
-  public AtomicLong totalReadTimeMs = new AtomicLong(0);
-  public AtomicLong bytesWritten = new AtomicLong(0);
-  public AtomicLong bytesRead = new AtomicLong(0);
-  public AtomicLong filesWritten = new AtomicLong(0);
-  public AtomicLong filesRead = new AtomicLong(0);
-  public AtomicLong elapsedTime = new AtomicLong(0);
+  private AtomicDouble totalCreateTimeNs = new AtomicDouble(0);
+  private AtomicDouble totalWriteTimeNs = new AtomicDouble(0);
+  private AtomicDouble totalCloseTimeNs = new AtomicDouble(0);
+  private AtomicLong bytesWritten = new AtomicLong(0);
+  private AtomicLong filesWritten = new AtomicLong(0);
+  private AtomicLong elapsedTimeNs = new AtomicLong(0);
+  
+  double getMeanCreateTimeMs() {
+    return totalCreateTimeNs.get() / (filesWritten.get() * 1_000_000);
+  }
+
+  double getMeanWriteTimeMs() {
+    return totalWriteTimeNs.get() / (filesWritten.get() * 1_000_000);
+  }
+
+  double getMeanCloseTimeMs() {
+    return totalCloseTimeNs.get() / (filesWritten.get() * 1_000_000);
+  }
+  
+  void addCreateTime(long deltaNs) {
+    totalCreateTimeNs.addAndGet(deltaNs);
+  }
+
+  void addWriteTime(long deltaNs) {
+    totalWriteTimeNs.addAndGet(deltaNs);
+  }
+
+  void addCloseTime(long deltaNs) {
+    totalCloseTimeNs.addAndGet(deltaNs);
+  }
+
+  void setElapsedTime(long deltaNs) {
+    elapsedTimeNs.set(deltaNs);
+  }
+  
+  long getElapsedTimeMs() {
+    return elapsedTimeNs.get() / 1_000_000;
+  }
+  
+  void incrFilesWritten() {
+    filesWritten.incrementAndGet();
+  }
+  
+  void incrBytesWritten(long byteCount) {
+    bytesWritten.addAndGet(byteCount);
+  }
+  
+  long getFilesWritten() {
+    return filesWritten.get();
+  }
+  
+  long getBytesWritten() {
+    return bytesWritten.get();
+  }
 }
