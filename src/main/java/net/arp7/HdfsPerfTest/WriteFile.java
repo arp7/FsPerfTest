@@ -212,25 +212,25 @@ public class WriteFile {
   }
 
   private static void writeCsvResult(final FileIoStats stats) {
-    Object[] results = new Object[]{
-            new Date().toGMTString(),
-            numFiles,
-            numThreads,
-            replication,
-            blockSize,
-            ioSize,
-            stats.getFilesWritten(),
-            stats.getBytesWritten(),
-            stats.getMeanCreateTimeMs(),
-            stats.getMeanWriteTimeMs(),
-            stats.getMeanCloseTimeMs(),
-            stats.getElapsedTimeMs(),
-            (fileSize * 1000) / stats.getElapsedTimeMs(),
-            (numFiles * fileSize * 1000) / stats.getElapsedTimeMs(),
-            note
+    final Object[] results = new Object[] {
+        new Date().toGMTString(),
+        numFiles,
+        numThreads,
+        replication,
+        blockSize,
+        ioSize,
+        stats.getFilesWritten(),
+        stats.getBytesWritten(),
+        stats.getMeanCreateTimeMs(),
+        stats.getMeanWriteTimeMs(),
+        stats.getMeanCloseTimeMs(),
+        stats.getElapsedTimeMs(),
+        (fileSize * 1000) / stats.getElapsedTimeMs(),
+        (numFiles * fileSize * 1000) / stats.getElapsedTimeMs(),
+        note
     };
 
-    CsvSchema schema = CsvSchema.builder()
+    final CsvSchema schema = CsvSchema.builder()
         .setColumnSeparator(';')
         .setQuoteChar('"')
         .setUseHeader(!resultCsvFile.exists())
@@ -252,8 +252,8 @@ public class WriteFile {
         .build();
 
     try (FileWriter fileWriter = new FileWriter(resultCsvFile, true)) {
-      CsvMapper mapper = new CsvMapper();
-      ObjectWriter writer = mapper.writer(schema);
+      final CsvMapper mapper = new CsvMapper();
+      final ObjectWriter writer = mapper.writer(schema);
       writer.writeValue(fileWriter, results);
     } catch (IOException e) {
       LOG.error("Could not write results to CSV file '{}': '{}'", resultCsvFile.getPath(), e.getMessage());
