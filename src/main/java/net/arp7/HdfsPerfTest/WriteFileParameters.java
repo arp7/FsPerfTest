@@ -46,7 +46,7 @@ public class WriteFileParameters {
   private boolean lazyPersist = false;
   private boolean hsync = false;
   private boolean hflush = false;
-  private boolean throttle = false;
+  private long maxWriteBps = 0;
   private String note = "";
 
   WriteFileParameters(Configuration conf, String[] args) {
@@ -65,7 +65,7 @@ public class WriteFileParameters {
       } else if (args[argIndex].equalsIgnoreCase("--hflush")) {
         hflush = true;
       } else if (args[argIndex].equalsIgnoreCase("--throttle")) {
-        throttle = true;
+        maxWriteBps = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-s")) {
         fileSize = Utils.parseReadableLong(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("-b")) {
@@ -131,8 +131,7 @@ public class WriteFileParameters {
     System.err.println(
         "\n   --resultNote  : Note to include in result CSV file. Optional.");
     System.err.println(
-        "\n   --throttle    : Adds artificial throttle. The rate of throttling " +
-            "\n                   is not configurable. Optional.");
+        "\n   --throttle    : Specify max write throughput in bytes/second.");
   }
 
 
@@ -229,8 +228,8 @@ public class WriteFileParameters {
     return hflush;
   }
 
-  public boolean isThrottle() {
-    return throttle;
+  public long maxWriteBps() {
+    return maxWriteBps;
   }
 
   public String getNote() {

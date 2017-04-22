@@ -32,7 +32,6 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Arrays;
@@ -88,7 +87,8 @@ public class WriteFile {
         ", FileSize=" + FileUtils.byteCountToDisplaySize(params.getFileSize()) +
         ", IoSize=" + FileUtils.byteCountToDisplaySize(params.getIoSize()) +
         ", BlockSize=" + FileUtils.byteCountToDisplaySize(params.getBlockSize()) +
-        ", ReplicationFactor=" + params.getReplication());
+        ", ReplicationFactor=" + params.getReplication() +
+        ", isThrottled=" + (params.maxWriteBps() > 0));
     LOG.info("Starting " + params.getNumThreads() + " writer thread" +
         (params.getNumThreads() > 1 ? "s" : "") + ".");
     final long startTime = System.nanoTime();
@@ -147,11 +147,16 @@ public class WriteFile {
         params.getBlockSize(), null);
     final long createEndTime = System.nanoTime();
     stats.addCreateTime(createEndTime - startTime);
+    final boolean isThrottled = params.maxWriteBps() > 0;
+    final long expectedIoTimeNs = 
+        (isThrottled ? (((long) data.length * 1_000_000_000) / params.maxWriteBps())
+            : Long.MAX_VALUE);
 
     try {
       long lastLoggedPercent = 0;
       long writeStartTime = System.nanoTime();
       for (long j = 0; j < params.getFileSize() / params.getIoSize(); ++j) {
+        final long ioStartTimeNs = (isThrottled ? System.nanoTime() : 0);
         os.write(data, 0, data.length);
 
         if (params.isHsync()) {
@@ -160,9 +165,8 @@ public class WriteFile {
           os.hflush();
         }
 
-        if (params.isThrottle()) {
-          Thread.sleep(300);
-        }
+        final long ioEndTimeNs = (isThrottled ? System.nanoTime() : 0);
+        Utils.enforceThrottle(ioEndTimeNs - ioStartTimeNs, expectedIoTimeNs);
 
         if (LOG.isDebugEnabled()) {
           long percentWritten =

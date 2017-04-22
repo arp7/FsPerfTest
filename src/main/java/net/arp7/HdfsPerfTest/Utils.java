@@ -59,5 +59,22 @@ public class Utils {
    */
   static String formatNumber(long number) {
     return NumberFormat.getInstance(locale).format(number);
-  }  
+  }
+
+
+  /**
+   * Enforce an IO throttle by sleeping for the appropriate amount of time.
+   * @param ioTimeNs time taken by an IO operation.
+   * @param expectedIoTimeNs minimum expected time for the IO operation based
+   *                         on the throttling rate.
+   * @throws InterruptedException
+   */
+  static void enforceThrottle(long ioTimeNs, long expectedIoTimeNs)
+      throws InterruptedException {
+    if (ioTimeNs < expectedIoTimeNs) {
+      // The IO completed too fast, so sleep for some time.
+      long sleepTimeNs = expectedIoTimeNs - ioTimeNs;
+      Thread.sleep(sleepTimeNs / 1_000_000, (int) (sleepTimeNs % 1_000_000));
+    }
+  }
 }
