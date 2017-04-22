@@ -19,6 +19,8 @@
 package net.arp7.HdfsPerfTest;
 
 
+import java.text.NumberFormat;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,6 +28,7 @@ import java.util.regex.Pattern;
 public class Utils {
   // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
   static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
+  private static final Locale locale = Locale.getDefault();
 
   /**
    * Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB etc.
@@ -45,5 +48,16 @@ public class Utils {
       return Long.parseLong(matcher.group(1)) * multiplier;
     }
     throw new IllegalArgumentException("Unrecognized number format " + number);
+  }
+
+
+  /**
+   * Pretty print the supplied number.
+   *
+   * @param number
+   * @return
+   */
+  static String formatNumber(long number) {
+    return NumberFormat.getInstance(locale).format(number);
   }  
 }
