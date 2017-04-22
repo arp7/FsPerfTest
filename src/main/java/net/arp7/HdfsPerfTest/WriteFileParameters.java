@@ -84,6 +84,10 @@ public class WriteFileParameters {
         resultCsvFile = new File(args[++argIndex]);
       } else if (args[argIndex].equalsIgnoreCase("--resultNote")) {
         note = args[++argIndex];
+      } else if (args[argIndex].equalsIgnoreCase("--help") ||
+          args[argIndex].equalsIgnoreCase("-h")) {
+        usage();
+        System.exit(0);
       } else {
         System.err.println("  Unknown option " + args[argIndex]);
         usage();
@@ -101,7 +105,7 @@ public class WriteFileParameters {
             "\n                   [-n <numFiles>] [-i <ioSize>] [-t <numThreads>]" +
             "\n                   [-o OutputDir] [--lazyPersist] [--hsync|hflush]" +
             "\n                   [--resultCsv <file>] [--resultNote <note>]" +
-            "\n                   [--throttle]");
+            "\n                   [--throttle <max-throughput>]");
     System.err.println(
         "\n   -s fileSize   : Specify the file size. Must be specified.");
     System.err.println(
@@ -138,7 +142,8 @@ public class WriteFileParameters {
   private void validate() {
     if (fileSize < 0) {
       System.err.println("\n  The file size must be specified with -s." +
-          "\n  All other parameters are optional.\n");
+          "\n  All other parameters are optional." +
+          "\n  Use the --help option for detailed help.");
       System.exit(1);
     }
 
