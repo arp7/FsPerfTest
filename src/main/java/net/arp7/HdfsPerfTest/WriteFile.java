@@ -150,7 +150,7 @@ public class WriteFile {
     final boolean isThrottled = params.maxWriteBps() > 0;
     final long expectedIoTimeNs = 
         (isThrottled ? (((long) data.length * 1_000_000_000) / params.maxWriteBps())
-            : Long.MAX_VALUE);
+            : 0);
 
     try {
       long lastLoggedPercent = 0;
