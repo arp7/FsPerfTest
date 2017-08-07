@@ -157,7 +157,7 @@ public class WriteFileParameters {
       System.err.println("\n  numThreads must be between 1 and 64 inclusive.");
     }
 
-    if (fileSize < ioSize) {
+    if (fileSize < ioSize && fileSize > 0) {
       // Correctly handle small files.
       ioSize = (int) fileSize;
     }

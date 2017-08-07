@@ -183,7 +183,10 @@ public class WriteFile {
       stats.addWriteTime(writeEndTime - writeStartTime);
       stats.incrFilesWritten();
       stats.incrBytesWritten(params.getFileSize());
-    } finally {
+    } catch(Exception e) {
+      LOG.error("write thread got exception ", e);
+      throw e;
+    } {
       final long closeStartTime = System.nanoTime();
       os.close();
       final long closeEndTime = System.nanoTime();
