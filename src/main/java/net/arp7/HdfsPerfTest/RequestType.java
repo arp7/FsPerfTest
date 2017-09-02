@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * <p/>
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- * <p/>
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,11 +19,29 @@
 package net.arp7.HdfsPerfTest;
 
 
-class Constants {
-  static final String DEFAULT_DIR = "/tmp/HdfsPerfTest";
-  static final int BUFFER_SIZE = 64 * 1024;
-  static final int DEFAULT_IO_LENGTH = 64 * 1024;
-  static final int DEFAULT_THREADS = 1;
-  static final int MAX_THREADS = 128;
-  static final int DEFAULT_NUM_FILES = 1;
+enum RequestType {
+  CREATE(0, false),
+  DELETE(1, false),
+  MKDIRS(2, false),
+  RENAME(3, false),
+  STAT(4, true),
+  GETCONTENTSUMMARY(5, true);
+  
+  private final int id;
+  
+  // true if this is a read request, false otherwise.
+  private final boolean isReadRequest;
+  
+  RequestType(int id, boolean isReadRequest) {
+    this.id = id;
+    this.isReadRequest = isReadRequest;
+  }
+
+  public int getId() {
+    return id;
+  }
+
+  public boolean isReadRequest() {
+    return isReadRequest;
+  }
 }
