@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;

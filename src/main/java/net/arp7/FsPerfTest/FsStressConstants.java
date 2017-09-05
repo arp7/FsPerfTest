@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 /**
  * Constants that control the runtime behavior of {@link FsStress}.

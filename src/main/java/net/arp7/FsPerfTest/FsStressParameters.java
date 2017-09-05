@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;

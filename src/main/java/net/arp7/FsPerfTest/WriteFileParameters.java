@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;

@@ -1,8 +1,8 @@
 ## hdfs-perf
 
-Micro benchmarks for HDFS/HCFS perf testing. The package includes the following two tests:
+Micro benchmarks for Apache HDFS/HCFS perf testing. The package includes the following two tests:
 
-1. FsStress: A very simplistic multi-threaded client that can issue metadata requests to a Hadoop-Compatible File System (HCFS) to measure its metadata IOPS.
+1. FsStress: A very simplistic multi-threaded client that can issue metadata requests to a Apache Hadoop-Compatible File System (HCFS) to measure its metadata IOPS.
 1. WriteFile: A multi-threaded write IO test that allows tweaking write parameters like replication, IO size, number of threads etc. A single thread should be able to saturate the network or single disk bandwidth (whichever is lower). This test is currently HDFS-specific.
 
 ## Building
@@ -34,7 +34,7 @@ Usage:
 Example Usage:
 Run test for 5 minutes, measuring FileSystem read performance with 4 client threads.
 ```
-hadoop jar HdfsPerfTest-1.0-SNAPSHOT.jar net.arp7.HdfsPerfTest.FsStress -t 300 -n 4 --enabledTests=reads
+hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.FsStress -t 300 -n 4 --enabledTests=reads
 ```
 
 
@@ -42,8 +42,11 @@ hadoop jar HdfsPerfTest-1.0-SNAPSHOT.jar net.arp7.HdfsPerfTest.FsStress -t 300 -
 
 A single-threaded write test with a 100GB file can be started as follows:
 
-    hadoop jar HdfsPerfTest-1.0-SNAPSHOT.jar net.arp7.HdfsPerfTest.WriteFile -s 100GB 
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile -s 100GB 
 
 Run without parameters to see usage.
 
-    hadoop jar HdfsPerfTest-1.0-SNAPSHOT.jar net.arp7.HdfsPerfTest.WriteFile
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile
+
+
+*Apache®, Apache Hadoop, Hadoop®, and the yellow elephant logo are either registered trademarks or trademarks of the Apache Software Foundation in the United States and/or other countries.*

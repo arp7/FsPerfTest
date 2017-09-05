@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -49,8 +49,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static java.lang.Math.abs;
-import static net.arp7.HdfsPerfTest.RequestType.CREATE;
-import static net.arp7.HdfsPerfTest.RequestType.MKDIRS;
+import static net.arp7.FsPerfTest.RequestType.CREATE;
+import static net.arp7.FsPerfTest.RequestType.MKDIRS;
 
 /**
  * A utility for benchmarking the performance of a Hadoop-Compatible

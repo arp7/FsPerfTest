@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package net.arp7.HdfsPerfTest;
+package net.arp7.FsPerfTest;
 
 import org.apache.commons.math3.util.Pair;
 import org.apache.hadoop.fs.Path;
