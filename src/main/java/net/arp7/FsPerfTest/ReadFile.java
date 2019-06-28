@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.Option;
 
 import java.io.IOException;
@@ -62,6 +63,7 @@ public class ReadFile implements Runnable {
       required = false,
       defaultValue = "1",
       showDefaultValue = ALWAYS,
+      converter = ThreadCountConverter.class,
       description = "Number of reader threads.")
   int numThreads;
 
@@ -73,29 +75,14 @@ public class ReadFile implements Runnable {
       description = "Length of each read IO.")
   int ioSize;
 
-  Configuration conf;
 
   @Override
   public void run() {
-    validateInputParameters();
-    conf = new Configuration();
     try {
-      FileSystem fs = FileSystem.get(conf);
-      startReaders(conf, fs);
+      FileSystem fs = FileSystem.get(new Configuration());
+      startReaders(fs);
     } catch (IOException | InterruptedException e) {
       LOG.error("Failed with exception", e);
-    }
-  }
-
-  /**
-   * Validate and setup the input parameters.
-   */
-  private void validateInputParameters() {
-    numThreads = Math.max(1, numThreads);
-    if (numThreads > Constants.MAX_THREADS) {
-      LOG.warn("NumThreads is too high({}). Limiting to {}",
-          numThreads, Constants.MAX_THREADS);
-      numThreads = Constants.MAX_THREADS;
     }
   }
 
@@ -108,7 +95,7 @@ public class ReadFile implements Runnable {
    * @throws IOException
    * @throws InterruptedException
    */
-  private void startReaders(Configuration conf, final FileSystem fs)
+  private void startReaders(final FileSystem fs)
       throws IOException, InterruptedException {
     final ExecutorService executor = Executors.newFixedThreadPool(
         numThreads);
