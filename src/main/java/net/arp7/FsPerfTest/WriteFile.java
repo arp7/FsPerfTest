@@ -40,6 +40,7 @@ import java.util.EnumSet;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -92,6 +93,7 @@ public class WriteFile {
     LOG.info("Starting " + params.getNumThreads() + " writer thread" +
         (params.getNumThreads() > 1 ? "s" : "") + ".");
     final long startTime = System.nanoTime();
+    ensureOutputDirExists(fs, params.getOutputDir());
     for (long t = 0; t < params.getNumThreads(); ++t) {
       final long threadIndex = t;
       Callable<Object> c = new Callable<Object>() {
@@ -99,8 +101,8 @@ public class WriteFile {
         public Object call() throws Exception {
           long fileIndex = 0;
           while (filesLeft.addAndGet(-1) >= 0) {
-            final String fileName = "WriteFile-" + runId +
-                "-" + (threadIndex + 1) + "-" + (++fileIndex);
+            final String fileName = String.format("WriteFile-%d-%04d-%08d",
+                runId, (threadIndex + 1), (++fileIndex));
             writeOneFile(new Path(params.getOutputDir(), fileName),
                 fs, data, stats);
           }
@@ -112,11 +114,26 @@ public class WriteFile {
 
     // And wait for all writers to complete.
     for (long t = 0; t < params.getNumThreads(); ++t) {
-      ecs.take();
+      try {
+        ecs.take().get();
+      } catch(ExecutionException ee) {
+        LOG.error("Thread {} execution failed with exception", t, ee.getCause());
+      }
     }
     final long endTime = System.nanoTime();
     stats.setElapsedTime(endTime - startTime);
     executor.shutdown();
+  }
+
+  /**
+   * Create the output directory for this test run.
+   */
+  private static void ensureOutputDirExists(FileSystem fs, Path outputDir)
+      throws IOException {
+    if (!fs.mkdirs(outputDir) && !fs.isDirectory(outputDir)) {
+      LOG.error("Failed to create output directory {}", outputDir);
+      System.exit(1);
+    }
   }
 
 
