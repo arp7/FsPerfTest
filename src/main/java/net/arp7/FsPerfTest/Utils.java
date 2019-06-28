@@ -19,22 +19,34 @@
 package net.arp7.FsPerfTest;
 
 
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.slf4j.Logger;
+
+import java.io.IOException;
 import java.text.NumberFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 
 public class Utils {
   // Valid numbers e.g. 65536, 64k, 64kb, 64K, 64KB etc.
-  static final Pattern pattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
+  static final Pattern numberPattern = Pattern.compile("^(\\d+)([kKmMgGtT]?)[bB]?$");
   private static final Locale locale = Locale.getDefault();
 
   /**
-   * Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB etc.
+   * Parse a human readable long e.g. 65536, 64KB, 4MB, 4m, 1GB, 2TB etc.
    */
   public static Long parseReadableLong(String number) {
-    Matcher matcher = pattern.matcher(number);
+    Matcher matcher = numberPattern.matcher(number);
     if (matcher.find()) {
       long multiplier = 1;
       if (matcher.group(2).length() > 0) {
@@ -45,11 +57,15 @@ public class Utils {
           case 'k':           multiplier *= 1024L;
         }
       }
-      return Long.parseLong(matcher.group(1)) * multiplier;
+      long baseVal = Long.parseLong(matcher.group(1));
+
+      if (baseVal > Long.MAX_VALUE / multiplier) {
+        throw new IllegalArgumentException(number + " is too large to represent as long.");
+      }
+      return baseVal * multiplier;
     }
     throw new IllegalArgumentException("Unrecognized number format " + number);
   }
-
 
   /**
    * Pretty print the supplied number.
@@ -76,5 +92,46 @@ public class Utils {
       long sleepTimeNs = expectedIoTimeNs - ioTimeNs;
       Thread.sleep(sleepTimeNs / 1_000_000, (int) (sleepTimeNs % 1_000_000));
     }
+  }
+
+  /**
+   * Wait for all tasks in the CompletionService to finish.
+   * Log an error for each task that completed exceptionally.
+   * @param cs
+   * @param numTasks
+   */
+  public static void joinAll(
+      CompletionService<Object> cs, int numTasks, Logger logger)
+      throws InterruptedException {
+    for (long t = 0; t < numTasks; ++t) {
+      try {
+        cs.take().get();
+      } catch(ExecutionException ee) {
+        logger.error("Thread {} execution failed with exception",
+            t, ee.getCause());
+      }
+    }
+  }
+
+  /**
+   * Recursively enumerate all regular files under the given directory and
+   * return a list of {@link LocatedFileStatus}, one per file.
+   *
+   * @param fs Hadoop compatible FileSystem object.
+   * @param dir Directory to enumerate.
+   * @return a list of {@link LocatedFileStatus}, one per file.
+   * @throws IOException
+   */
+  public static List<LocatedFileStatus> getInputFilesListing(
+      FileSystem fs, Path dir) throws IOException {
+    final List<LocatedFileStatus> files = new ArrayList<>();
+    final RemoteIterator<LocatedFileStatus> iter = fs.listFiles(dir, true);
+    while (iter.hasNext()) {
+      final LocatedFileStatus fileStatus = iter.next();
+      if (fileStatus.isFile()) {
+        files.add(fileStatus);
+      }
+    }
+    return Collections.unmodifiableList(files);
   }
 }

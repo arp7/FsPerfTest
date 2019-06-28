@@ -113,13 +113,7 @@ public class WriteFile {
     }
 
     // And wait for all writers to complete.
-    for (long t = 0; t < params.getNumThreads(); ++t) {
-      try {
-        ecs.take().get();
-      } catch(ExecutionException ee) {
-        LOG.error("Thread {} execution failed with exception", t, ee.getCause());
-      }
-    }
+    Utils.joinAll(ecs, (int) params.getNumThreads(), LOG);
     final long endTime = System.nanoTime();
     stats.setElapsedTime(endTime - startTime);
     executor.shutdown();
