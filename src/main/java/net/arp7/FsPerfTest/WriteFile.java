@@ -32,6 +32,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Arrays;
@@ -73,7 +74,7 @@ public class WriteFile {
 
   private static void writeFiles(final Configuration conf, final FileIoStats stats)
       throws InterruptedException, IOException {
-    final FileSystem fs = FileSystem.get(conf);
+    final FileSystem fs = FileSystem.get(params.getOutputDir().toUri(), conf);
     final AtomicLong filesLeft = new AtomicLong(params.getNumFiles());
     final long runId = abs(rand.nextLong());
     final byte[] data = new byte[params.getIoSize()];

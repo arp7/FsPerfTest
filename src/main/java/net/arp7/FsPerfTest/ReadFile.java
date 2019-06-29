@@ -32,6 +32,8 @@ import picocli.CommandLine.ITypeConverter;
 import picocli.CommandLine.Option;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
@@ -79,9 +81,9 @@ public class ReadFile implements Runnable {
   @Override
   public void run() {
     try {
-      FileSystem fs = FileSystem.get(new Configuration());
+      FileSystem fs = FileSystem.get(new URI(inputDir), new Configuration());
       startReaders(fs);
-    } catch (IOException | InterruptedException e) {
+    } catch (IOException | InterruptedException | URISyntaxException e) {
       LOG.error("Failed with exception", e);
     }
   }
@@ -141,6 +143,11 @@ public class ReadFile implements Runnable {
     executor.shutdown();
   }
 
+  /**
+   * Print aggregate statistics at the end of the run.
+   *
+   * @param stats
+   */
   private void printStats(FileIoStats stats) {
     LOG.info("Total files read: " + stats.getFilesRead());
     LOG.info("Total data read: " +
