@@ -1,10 +1,10 @@
 ## FS-perf
 
-Micro benchmarks for Apache HDFS/HCFS perf testing. The package includes the following two tests:
+Programs to test performance of Apache Hadoop compatible filesystems (e.g. HDFS, Ozone, S3A, WASB). The package includes the following tests:
 
-1. FsStress: A very simplistic multi-threaded client that can issue metadata requests to a Apache Hadoop-Compatible File System (HCFS) to measure its metadata IOPS.
-1. WriteFile: A multi-threaded write IO test that allows tweaking write parameters like replication, IO size, number of threads etc. A single thread should be able to saturate the network or single disk bandwidth (whichever is lower).
+1. WriteFile: A write test that allows tweaking client parameters like replication, IO size, number of threads etc. A single thread should be able to saturate the network or single disk bandwidth.
 1. ReadFile: A multi-threaded read IO test to benchmark reading files.
+1. FsStress: A simplistic multi-threaded client that can issue metadata requests to a Apache Hadoop-Compatible File System (HCFS) to measure its metadata IOPS.
 
 ## Building
 
