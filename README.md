@@ -15,7 +15,32 @@ You will need Maven + JDK7 to build the benchmark source code. The command to bu
 
 ## Running the Tests
 
-### FsStress
+### WriteFile
+
+A single-threaded write test with a 100GB file can be started as follows:
+
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile -s 100GB 
+
+With two threads
+
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile -s 100GB -t 2
+
+Run without parameters to see full usage.
+
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile
+
+
+### ReadFile
+
+Start 4 threads for 10 minutes to benchmark read performance by reading files under the `/myInput` directory.
+
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.ReadFile -d 10m -t 4 -i /myInput
+
+Run without parameters to see full usage.
+
+    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.ReadFile
+    
+ ### FsStress
 
 Usage:
 ```
@@ -39,29 +64,5 @@ hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.FsStress -t 300 -n 4 
 ```
 
 
-### WriteFile
-
-A single-threaded write test with a 100GB file can be started as follows:
-
-    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile -s 100GB 
-
-With two threads
-
-    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile -s 100GB -t 2
-
-Run without parameters to see usage.
-
-    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.WriteFile
-
-
-### ReadFile
-
-Start 4 threads for 10 minutes to benchmark read performance by reading files under the `/myInput` directory.
-
-    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.ReadFile -d 10m -t 4 -i /myInput
-
-Run without parameters to see usage.
-
-    hadoop jar FsPerfTest-1.0-SNAPSHOT.jar net.arp7.FsPerfTest.ReadFile
 
 *Apache®, Apache Hadoop, Hadoop®, and the yellow elephant logo are either registered trademarks or trademarks of the Apache Software Foundation in the United States and/or other countries.*
