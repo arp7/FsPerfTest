@@ -2,9 +2,17 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.sonatype.mavenbook</groupId>
+  <groupId>net.arp7.FsPerfTest</groupId>
   <artifactId>FsPerfTest</artifactId>
   <version>1.0-SNAPSHOT</version>
+  <name>FsPerfTest</name>
+  <url>https://www.github.com/arp7/FsPerfTest</url>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <shaded.dependency.prefix>net.arp7.FsPerfTest.shaded</shaded.dependency.prefix>
+  </properties>
+
   <build>
     <plugins>
       <plugin>
@@ -21,16 +29,63 @@
         <artifactId>findbugs-maven-plugin</artifactId>
         <version>3.0.1</version>
       </plugin>
+<!--       <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <descriptorRefs>
+            <descriptorRef>jar-with-dependencies</descriptorRef>
+          </descriptorRefs>
+          <appendAssemblyId>false</appendAssemblyId>
+        </configuration>
+      </plugin>     -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>2.4.3</version>
+        <version>3.2.1</version>
         <executions>
           <execution>
             <phase>package</phase>
             <goals>
               <goal>shade</goal>
             </goals>
+            <configuration>
+              <minimizeJar>true</minimizeJar>
+              <artifactSet>
+                <includes>
+                  <include>*</include>
+                </includes>
+              </artifactSet>
+              <relocations>
+                <relocation>
+                  <pattern>net</pattern>
+                  <shadedPattern>${shaded.dependency.prefix}.net</shadedPattern>
+                  <excludes>
+                    <exclude>net/arp7/FsPerfTest/*</exclude>
+                    <exclude>net/arp7/FsPerfTest/**/*</exclude>
+                  </excludes>
+                </relocation>
+                <relocation>
+                  <pattern>org</pattern>
+                  <shadedPattern>${shaded.dependency.prefix}.org</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com</pattern>
+                  <shadedPattern>${shaded.dependency.prefix}.com</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>picocli</pattern>
+                  <shadedPattern>${shaded.dependency.prefix}.picocli</shadedPattern>
+                </relocation>
+              </relocations>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -38,52 +93,54 @@
   </build>
   <packaging>jar</packaging>
 
-  <name>FsPerfTest</name>
-  <url>http://maven.apache.org</url>
-
-  <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-  </properties>
-
   <dependencies>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>3.8.1</version>
+      <version>4.12</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>commons-io</groupId>
       <artifactId>commons-io</artifactId>
-      <version>2.4</version>
+      <version>2.6</version>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-common</artifactId>
-      <version>2.7.2</version>
-      <scope>provided</scope>
+      <version>2.7.7</version>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-hdfs</artifactId>
-      <version>2.7.2</version>
-      <scope>provided</scope>
+      <version>2.7.7</version>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-log4j12</artifactId>
-      <version>1.7.14</version>
-      <scope>provided</scope>
+      <version>1.7.26</version>
+      <scope>compile</scope>
     </dependency>
+    <dependency>
+      <groupId>log4j</groupId>
+      <artifactId>log4j</artifactId>
+      <version>1.2.17</version>
+      <scope>compile</scope>
+    </dependency>    
     <dependency>
       <groupId>com.fasterxml.jackson.dataformat</groupId>
       <artifactId>jackson-dataformat-csv</artifactId>
-      <version>2.2.3</version>
+      <version>2.9.9</version>
+      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
       <version>3.9.6</version>
+      <scope>compile</scope>
     </dependency>
   </dependencies>
 </project>
