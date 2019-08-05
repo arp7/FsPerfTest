@@ -100,17 +100,24 @@ public class Utils {
    * @param cs
    * @param numTasks
    */
-  public static void joinAll(
+  public static List<Exception> joinAll(
       CompletionService<Object> cs, int numTasks, Logger logger)
       throws InterruptedException {
+    List<Exception> exceptions = new ArrayList<>();
     for (long t = 0; t < numTasks; ++t) {
       try {
         cs.take().get();
       } catch(ExecutionException ee) {
         logger.error("Thread {} execution failed with exception",
             t, ee.getCause());
+        exceptions.add(ee);
       }
     }
+    if (exceptions.size() > 0) {
+      logger.error("{} of {} threads terminated with exception.",
+          exceptions.size(), numTasks);
+    }
+    return exceptions;
   }
 
   /**

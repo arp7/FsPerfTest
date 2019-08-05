@@ -208,22 +208,24 @@ public class WriteFile {
 
   static private void writeStats(final FileIoStats stats) {
     LOG.info("Total files written: " + stats.getFilesWritten());
-    LOG.info("Total data written: " +
-        FileUtils.byteCountToDisplaySize(stats.getBytesWritten()));
-    LOG.info("Mean Time to create each file on NN: " +
-        String.format("%.2f", stats.getMeanCreateTimeMs()) + " ms");
-    LOG.info("Mean Time to write each file: " +
-        String.format("%.2f", stats.getMeanWriteTimeMs()) + " ms");
-    LOG.info("Mean Time to close each file: " +
-        String.format("%.2f", stats.getMeanCloseTimeMs()) + " ms");
-    LOG.info("Total elapsed time: " + Utils.formatNumber(stats.getElapsedTimeMs()) +
-        " ms");
-    long throughput = 0;
-    if (stats.getElapsedTimeMs() > 0) {
-      throughput = (params.getNumFiles() * params.getFileSize()) /
-          stats.getElapsedTimeMs();
+    if (stats.getFilesWritten() > 0) {
+      LOG.info("Total data written: " +
+          FileUtils.byteCountToDisplaySize(stats.getBytesWritten()));
+      LOG.info("Mean Time to create each file on NN: " +
+          String.format("%.2f", stats.getMeanCreateTimeMs()) + " ms");
+      LOG.info("Mean Time to write each file: " +
+          String.format("%.2f", stats.getMeanWriteTimeMs()) + " ms");
+      LOG.info("Mean Time to close each file: " +
+          String.format("%.2f", stats.getMeanCloseTimeMs()) + " ms");
+      LOG.info("Total elapsed time: " + Utils.formatNumber(stats.getElapsedTimeMs()) +
+          " ms");
+      long throughput = 0;
+      if (stats.getElapsedTimeMs() > 0) {
+        throughput = (params.getNumFiles() * params.getFileSize()) /
+            stats.getElapsedTimeMs();
+      }
+      LOG.info("Aggregate throughput: " + Utils.formatNumber(throughput) + " KBps");
     }
-    LOG.info("Aggregate throughput: " + Utils.formatNumber(throughput) + " KBps");
   }
 
   private static void writeCsvResult(final FileIoStats stats) {
