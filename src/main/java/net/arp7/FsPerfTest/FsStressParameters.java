@@ -176,7 +176,7 @@ class FsStressParameters {
     System.err.println(
         "\n   -n NumThreads  : Number of client threads. Default is " + Constants.DEFAULT_THREADS);
     System.err.println(
-        "\n   --enabledThreads=... : A comma-separated list of requests that are enabled.");
+        "\n   --enabledTests=... : A comma-separated list of requests that are enabled.");
     System.err.println(
         "                          Where tests can be one or more of:");
     System.err.println(
