@@ -50,7 +50,7 @@ Usage:
 
    -n NumThreads  : Number of client threads. Default is 1
 
-   --enabledThreads=... : A comma-separated list of requests that are enabled.
+   --enabledTests=... : A comma-separated list of requests that are enabled.
                           Where tests can be one or more of:
                             CREATE, DELETE, MKDIRS, RENAME, STAT, GETCONTENTSUMMARY
                             or 'ALL' for everything (default); or 'READS'
